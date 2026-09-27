@@ -112,11 +112,12 @@ class ReproduceStage(Stage):
         verdict, details = outcome.judge(b.ok, ex, original, rules,
                                          item["source"])
         artifacts = [str(b.log)] if b.log else []
+        data = {**base, "outcome": verdict, **details}
         if ex is not None:
             path = adir / "excerpt.txt"
             path.write_text(ex.text)
             artifacts.append(str(path))
-        data = {**base, "outcome": verdict, **details}
+            data["excerpt_path"] = str(path)
         if verdict == outcome.INFRA:
             return StageResult(uid, Status.ERROR,
                                {**data, "error": details.get("reason")},
@@ -164,7 +165,8 @@ class ReproduceStage(Stage):
             verdict, details = outcome.judge(False, ex, original, rules,
                                              item["source"])
             return StageResult(uid, Status.OK, {
-                **base, "outcome": verdict, "log": str(log), **details},
+                **base, "outcome": verdict, "log": str(log), **details,
+                "excerpt_path": str(adir / "excerpt.txt")},
                 [str(log), str(adir / "excerpt.txt")])
         # Dependency wait, chroot problem, cancelled...: final for this
         # build, but says nothing about the package itself.

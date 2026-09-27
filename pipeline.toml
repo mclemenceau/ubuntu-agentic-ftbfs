@@ -45,3 +45,21 @@ gate = "manual"
 local_arches = ["amd64"]
 parallel = 8
 # ppa = "<lp-user>/ftbfs-repro"   # enables other arches via Launchpad
+
+# Agent fixes the source (Read/Grep/Edit only; no shell, no network);
+# tooling turns edits into a DEP-3 patch, changelog and debdiff.
+# Human-gated: `ftbfs approve dev <source|item>`.
+[stage.dev]
+after = ["reproduce", "diagnose"]
+when = "reproduce.outcome in ['reproduced', 'reproduced-similar']"
+gate = "manual"
+agent = { tier = "medium", effort = "medium", max_budget_usd = 2.0, timeout = 1200, escalate_after_loops = 2, escalate_tier = "large" }
+max_errors = 1
+
+# Rebuild the patched package; failures loop back to dev with the new
+# excerpt (at most twice, the last attempt on the large tier).
+[stage.verify]
+after = ["dev"]
+local_arches = ["amd64"]
+parallel = 8
+on_fail = { goto = "dev", max_loops = 2 }

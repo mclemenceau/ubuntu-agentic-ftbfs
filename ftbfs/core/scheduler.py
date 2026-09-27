@@ -189,7 +189,8 @@ class Scheduler:
                 and prev[0]["run_id"] == self.run_id):
             return Decision(False, "pending (already polled this run)", ih)
         errors = sum(1 for r in prev if r["status"] == Status.ERROR)
-        if errors >= MAX_ERRORS_PER_INPUTS:
+        # Expensive stages (agents) can lower this with `max_errors`.
+        if errors >= spec.options.get("max_errors", MAX_ERRORS_PER_INPUTS):
             return Decision(False, f"gave up after {errors} errors", ih)
         return Decision(True, "ready", ih)
 
