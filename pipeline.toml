@@ -21,3 +21,6 @@
 
 [stage.classify]
 after = ["excerpt"]
+
+# Package-level Debian/upstream facts; independent of the log stages.
+[stage.facts]

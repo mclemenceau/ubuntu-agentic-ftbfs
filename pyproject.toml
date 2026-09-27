@@ -5,6 +5,7 @@ description = "Agentic review pipeline for Ubuntu FTBFS"
 requires-python = ">=3.12"
 dependencies = [
     "lxml>=5",
+    "psycopg[binary]>=3",
     "pydantic>=2",
 ]
 

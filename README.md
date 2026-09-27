@@ -12,6 +12,7 @@ uv run ftbfs ingest                  # fetch + parse + diff the page
 uv run ftbfs list --by arch          # what the default filter selects
 uv run ftbfs run                     # run the pipeline on the selection
 uv run ftbfs clusters                # failure clusters, rule hit rate
+uv run ftbfs signals -v              # Debian/upstream facts per package
 uv run ftbfs status                  # runs, per-stage counts, gates, cost
 ```
 
@@ -105,6 +106,22 @@ models per backend (`[backend.<name>.tiers]`). Backends implement
 `rules.toml` classifies excerpts into failure classes and clusters with no
 tokens spent. Rules are tried in order. Editing the file re-classifies on
 the next run.
+
+## Debian and upstream facts
+
+The `facts` stage runs once per source package, with no tokens. Sources:
+- Ubuntu and Debian Sources indexes, reproducible-builds testing status:
+  cached once a day in `cache/facts/`
+- one query per batch to the public UDD mirror, for Debian FTBFS bugs
+
+It emits signals that answer "is this known or fixed in Debian?" before
+any LLM runs:
+- `sync-candidate`, `merge-candidate`, `newer-in-experimental`,
+  `not-in-debian`
+- `fixed-in-debian`, `debian-ftbfs-open`, `debian-patch`
+- `ftbfs-in-debian-testing`, `builds-in-debian-testing`
+
+`ftbfs signals --signal fixed-in-debian` lists the packages for a signal.
 
 ## Development
 

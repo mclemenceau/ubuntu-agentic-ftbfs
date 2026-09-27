@@ -127,6 +127,35 @@ def cmd_clusters(app: App, a) -> None:
         print(f"      {key[:150]}")
 
 
+def cmd_signals(app: App, a) -> None:
+    """Packages per deterministic facts signal."""
+    sources = {r["source"] for r in app.select(_filter(app, a))}
+    rows = app.db.query(
+        "SELECT unit_id, data FROM (SELECT unit_id, data, MAX(id)"
+        " FROM stage_result WHERE stage='facts' AND status='ok'"
+        " GROUP BY unit_id)")
+    facts = [json.loads(r["data"]) for r in rows if r["unit_id"] in sources]
+    if not facts:
+        sys.exit("no facts yet; run `ftbfs run`")
+    by: dict[str, list] = {}
+    for f in facts:
+        for sig in f["signals"]:
+            by.setdefault(sig, []).append(f)
+    print(f"{len(facts)} packages with facts")
+    for sig, fs in sorted(by.items(), key=lambda kv: -len(kv[1])):
+        if a.signal and sig not in a.signal:
+            continue
+        print(f"\n{sig}: {len(fs)}")
+        if not (a.signal or a.verbose):
+            continue
+        for f in sorted(fs, key=lambda f: f["source"]):
+            bugs = f["debian_bugs"]["open"] + f["debian_bugs"]["fixed_newer"]
+            bug = f"  #{bugs[0]['id']} {bugs[0]['title'][:60]}" if bugs \
+                else ""
+            print(f"  {f['source']:28} {f['ubuntu']['newest_failing']:24}"
+                  f" debian {f['debian']['newest'] or '-':20}{bug}")
+
+
 def cmd_stages(app: App, a) -> None:
     registry = app.registry
     pipeline = app.pipeline
@@ -344,6 +373,15 @@ def main(argv: list[str] | None = None) -> None:
     _filter_args(s)
     s.add_argument("--min-size", type=int, default=2)
     s.set_defaults(func=cmd_clusters)
+
+    s = sub.add_parser("signals", help="packages per Debian/upstream"
+                       " facts signal")
+    _filter_args(s)
+    s.add_argument("--signal", action="append",
+                   help="only list this signal (repeatable)")
+    s.add_argument("-v", "--verbose", action="store_true",
+                   help="list packages for every signal")
+    s.set_defaults(func=cmd_signals)
 
     s = sub.add_parser("stages", help="registered stages and pipeline")
     s.set_defaults(func=cmd_stages)

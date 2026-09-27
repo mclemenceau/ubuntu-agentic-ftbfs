@@ -145,11 +145,11 @@ hint = "Local declaration clashes with a system header (often after glibc or C23
 
 [[rule]]
 id = "openssl-removed-api"
-class = "openssl3-api"
+class = "openssl-api-removed"
 family = "compile"
 match = '''\b(ENGINE_\w+|TLSv1(_[12])?_(client_|server_)?method|SSLv[23]_\w+|ERR_load_\w+_strings|RSA_generate_key|FIPS_mode\w*)\b'''
 cluster_by = "class"
-hint = "API removed or deprecated in OpenSSL 3.x: port to the EVP/TLS_*_method APIs."
+hint = "API removed in OpenSSL 3.x/4.x (the dev series ships OpenSSL 4): port to EVP / TLS_*_method APIs; check Debian for an existing 'FTBFS with openssl 4' bug."
 
 [[rule]]
 id = "python2-c-api"
