@@ -6,7 +6,7 @@ import json
 import pytest
 
 from ftbfs.agents.fake import FakeBackend
-from ftbfs.core.context import Units
+from ftbfs.core.context import Paths, Units
 from ftbfs.core.pipeline import PipelineError, build
 from ftbfs.core.scheduler import Cancelled, Scheduler
 from ftbfs.core.stage import Kind, Stage, StageResult, Status, UnitType
@@ -49,8 +49,9 @@ def sched(db, units, tmp_path, stages, conf, backend=None, run_id=None):
     registry = {s.name: s for s in stages}
     pipeline = build({"stage": conf}, registry, default_backend="fake")
     backend = backend or FakeBackend()
-    return Scheduler(db, pipeline, units, {"fake": backend},
-                     tmp_path / "work", run_id=run_id)
+    paths = Paths(tmp_path, tmp_path / "work", tmp_path / "cache")
+    return Scheduler(db, pipeline, units, {"fake": backend}, paths,
+                     run_id=run_id)
 
 
 def calls(stage):
@@ -318,3 +319,13 @@ def test_disabled_stage_is_ignored():
     reg = {"a": make_stage("a")}
     p = build({"stage": {"a": {"enabled": False}}}, reg, "fake")
     assert list(p.specs) == []
+
+
+def test_stage_status_wins_over_data_status(db, units, tmp_path):
+    a = make_stage("a", fn=lambda ctx, uid: {"status": "attempted"})
+    b = make_stage("b", fn=lambda ctx, uid: {
+        "seen": ctx.upstream(uid, "a")["status"]})
+    s = sched(db, units, tmp_path, [a, b], {"a": {}, "b": {"after": ["a"]}})
+    assert s.run()["b"] == {"ok": 5}
+    row = db.one("SELECT data FROM stage_result WHERE stage='b'")
+    assert json.loads(row["data"])["seen"] == "ok"

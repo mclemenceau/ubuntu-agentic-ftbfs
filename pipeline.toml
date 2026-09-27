@@ -13,6 +13,11 @@
 # Stages are enabled here milestone by milestone as they are implemented.
 # Target default pipeline:
 #
-#   excerpt -> classify -> cluster -> facts -> triage -> diagnose
+#   excerpt -> classify (+cluster) -> facts -> triage -> diagnose
 #     -> confirm -> [gate] reproduce -> dev -> verify
 #     -> adversarial_review (on_fail: dev) -> [gate] lp_file_bug
+
+[stage.excerpt]
+
+[stage.classify]
+after = ["excerpt"]

@@ -54,6 +54,9 @@ FINAL = {Status.OK, Status.FAIL, Status.SKIP, Status.NEEDS_HUMAN}
 
 @dataclass
 class StageResult:
+    """`status` and `id` are reserved: downstream stages and `when`
+    expressions see a result as {**data, "status": ..., "id": ...}."""
+
     unit_id: str
     status: Status
     data: dict[str, Any] = field(default_factory=dict)

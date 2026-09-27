@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
+import socket
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .agents import make_backend
 from .config import Config, load_config
-from .core.context import Units
+from .core.context import Paths, Units
 from .core.pipeline import Pipeline
 from .core.pipeline import load as load_pipeline
 from .core.scheduler import Cancelled, Scheduler
@@ -93,16 +96,49 @@ class App:
     def scheduler(self, units: Units, run_id: int | None = None):
         return Scheduler(
             self.db, self.pipeline, units, self.backends(),
-            self.config.work_dir, self.config.concurrency, run_id,
+            Paths(self.config.root, self.config.work_dir,
+                  self.config.cache_dir),
+            self.config.concurrency, run_id,
         )
+
+    def reap_stale_runs(self) -> list[int]:
+        """Mark runs whose process died (killed, terminal closed, ...) as
+        interrupted. Their finished work stays cached; a new run resumes.
+
+        Runs without a pid (older schema) are reaped once they have been
+        silent for STALE_AFTER.
+        """
+        host = socket.gethostname()
+        cutoff = (datetime.now(UTC) - STALE_AFTER).isoformat(
+            timespec="seconds")
+        reaped = []
+        for r in self.db.query(
+            "SELECT id, pid, host, (SELECT MAX(ts) FROM event"
+            " WHERE run_id = run.id) AS last FROM run"
+            " WHERE status = 'running'"
+        ):
+            if r["pid"] is not None:
+                dead = r["host"] == host and not _alive(r["pid"])
+            else:
+                dead = (r["last"] or "") < cutoff
+            if dead:
+                self.db.execute(
+                    "UPDATE run SET status='interrupted', finished=?"
+                    " WHERE id=?", (now(), r["id"]))
+                self.db.event("run_interrupted", run_id=r["id"],
+                              pid=r["pid"])
+                reaped.append(r["id"])
+        return reaped
 
     def run(self, flt: Filter, only: list[str] | None = None,
             until: str | None = None, trigger: str = "cli") -> dict:
+        self.reap_stale_runs()
         items = self.select(flt)
         run_id = self.db.execute(
             "INSERT INTO run (started, status, filter, pipeline_hash,"
-            " trigger) VALUES (?, 'running', ?, ?, ?)",
-            (now(), json.dumps(flt.to_dict()), self.pipeline.hash, trigger),
+            " trigger, pid, host) VALUES (?, 'running', ?, ?, ?, ?, ?)",
+            (now(), json.dumps(flt.to_dict()), self.pipeline.hash, trigger,
+             os.getpid(), socket.gethostname()),
         ).lastrowid
         self.db.event("run_start", run_id=run_id, items=len(items),
                       stages=list(self.pipeline.specs))
@@ -150,3 +186,16 @@ class App:
             out[iid] = {"filtered_out": [],
                         "stages": sched.explain(uid_for)}
         return out
+
+
+STALE_AFTER = timedelta(minutes=15)
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True

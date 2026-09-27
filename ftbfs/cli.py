@@ -92,6 +92,41 @@ def cmd_run(app: App, a) -> None:
               " see `ftbfs why`)")
 
 
+def cmd_clusters(app: App, a) -> None:
+    rows = [r for r in app.select(_filter(app, a)) if r["cluster_id"]]
+    if not rows:
+        sys.exit("no classified items; run `ftbfs run` first")
+    clusters: dict[str, list] = {}
+    for r in rows:
+        clusters.setdefault(r["cluster_id"], []).append(r)
+    known = sum(1 for r in rows if r["class"] != "unknown")
+    print(f"{len(rows)} classified items, {len(clusters)} clusters;"
+          f" rules matched {known} ({100 * known / len(rows):.0f}%)")
+    fam = Counter(r["family"] or "unknown" for r in rows)
+    print("by family: " + ", ".join(f"{k}={v}" for k, v in
+                                    fam.most_common()))
+    multi = [c for c in clusters.values() if len(c) > 1]
+    print(f"clusters with >1 item: {len(multi)} covering"
+          f" {sum(len(c) for c in multi)} items\n")
+    ordered = sorted(clusters.items(), key=lambda kv: -len(kv[1]))
+    for cid, members in ordered:
+        if len(members) < a.min_size:
+            continue
+        pkgs = sorted({m["source"] for m in members})
+        ex = app.db.one(
+            "SELECT data FROM stage_result WHERE unit_id=? AND"
+            " stage='excerpt' ORDER BY id DESC LIMIT 1",
+            (members[0]["id"],))
+        key = ""
+        if ex:
+            keys = json.loads(ex["data"]).get("key_lines") or [""]
+            key = keys[0]
+        print(f"{len(members):4} items {len(pkgs):4} pkgs  {cid}")
+        print(f"      e.g. {', '.join(pkgs[:6])}"
+              f"{' ...' if len(pkgs) > 6 else ''}")
+        print(f"      {key[:150]}")
+
+
 def cmd_stages(app: App, a) -> None:
     registry = app.registry
     pipeline = app.pipeline
@@ -201,6 +236,7 @@ def cmd_tail(app: App, a) -> None:
 
 
 def cmd_status(app: App, a) -> None:
+    app.reap_stale_runs()
     runs = app.db.query("SELECT * FROM run ORDER BY id DESC LIMIT 5")
     snap = app.db.one("SELECT * FROM snapshot ORDER BY id DESC LIMIT 1")
     if snap:
@@ -258,6 +294,7 @@ def cmd_retry(app: App, a) -> None:
 
 
 def cmd_control(app: App, a) -> None:
+    app.reap_stale_runs()
     run = app.db.one(
         "SELECT id FROM run WHERE id=?" if a.run
         else "SELECT id FROM run WHERE status='running'"
@@ -302,6 +339,11 @@ def main(argv: list[str] | None = None) -> None:
                    help="only run these stages")
     s.add_argument("--until", help="run up to and including this stage")
     s.set_defaults(func=cmd_run)
+
+    s = sub.add_parser("clusters", help="failure clusters and rule hits")
+    _filter_args(s)
+    s.add_argument("--min-size", type=int, default=2)
+    s.set_defaults(func=cmd_clusters)
 
     s = sub.add_parser("stages", help="registered stages and pipeline")
     s.set_defaults(func=cmd_stages)

@@ -1,0 +1,330 @@
+# Deterministic failure classification (zero tokens).
+#
+# Rules are tried in file order against each key line of an excerpt
+# (first key line first), so put specific rules before generic ones.
+#
+#   id          unique rule id
+#   class       failure class (several rules may share one)
+#   family      compile | link | test | packaging | deps | toolchain |
+#               arch | infra
+#   match       regex (Python syntax); use literal '''...''' strings
+#   key         optional group number whose value refines the cluster
+#   cluster_by  "class"     one cluster for the whole class
+#               "key"       one cluster per class + key (default if key)
+#               "signature" one cluster per normalized error (default)
+#               "package"   one cluster per source package
+#   scope       "key_lines" (default) or "excerpt" (whole excerpt text)
+#   step        optional: only when the failed step equals this
+#   fail_stage  optional: only when sbuild's Fail-Stage equals this
+#   hint        short known-fix knowledge handed to diagnosis prompts
+#
+# New rules proposed by LLM stages land in the review queue first.
+
+# -- dependencies / infrastructure ------------------------------------------
+
+[[rule]]
+id = "deps-blocker"
+class = "dependency-unsatisfiable"
+family = "deps"
+fail_stage = "install-deps"
+scope = "excerpt"
+match = '''Depends ([\w.+-]+)(?: \([^)\n]*\))?\n\s+but none of the choices are installable|^\s+- ([\w.+-]+):[\w-]+=\S+ is not selected for install|Depends: ([\w.+-]+)[^\n]* but it is not installable|Depends: ([\w.+-]+)[^\n]* but [\S]+ is to be installed'''
+key = 1
+hint = "Build-dependencies cannot be installed; usually a transition, an uninstallable or not-yet-built dependency, not a source bug. Check the blocker package first."
+
+[[rule]]
+id = "deps-unsatisfiable"
+class = "dependency-unsatisfiable"
+family = "deps"
+fail_stage = "install-deps"
+scope = "excerpt"
+match = '''.'''
+cluster_by = "package"
+hint = "Build-dependencies cannot be installed; usually a transition or a missing/renamed package, not a source bug."
+
+[[rule]]
+id = "build-timeout"
+class = "build-timeout"
+family = "infra"
+match = '''Build killed with signal TERM after \d+ minutes|E: Build killed'''
+cluster_by = "class"
+hint = "Killed for inactivity: a hanging test or an interactive step."
+
+[[rule]]
+id = "out-of-memory"
+class = "out-of-memory"
+family = "infra"
+match = '''virtual memory exhausted|Cannot allocate memory|out of memory|Killed signal terminated program|std::bad_alloc'''
+cluster_by = "class"
+hint = "OOM on the builder: reduce parallelism or debug info on this arch."
+
+[[rule]]
+id = "disk-full"
+class = "disk-full"
+family = "infra"
+match = '''No space left on device'''
+cluster_by = "class"
+
+# -- toolchain ---------------------------------------------------------------
+
+[[rule]]
+id = "toolchain-crash"
+class = "toolchain-crash"
+family = "toolchain"
+match = '''internal compiler error|ld terminated with signal|collect2: fatal error: .*signal \d+|Segmentation fault.*(cc1|as|ld)\b'''
+cluster_by = "class"
+hint = "Compiler/linker crash: often toolchain bug on one arch; retry, then report against gcc/binutils."
+
+[[rule]]
+id = "fortify-redefined"
+class = "fortify-source-redefined"
+family = "toolchain"
+match = '''['‘]_FORTIFY_SOURCE['’] redefined'''
+cluster_by = "class"
+hint = "Package hard-codes -D_FORTIFY_SOURCE=2 while dpkg now sets 3; drop the package's define or use -U first."
+
+[[rule]]
+id = "cf-protection-unsupported"
+class = "cf-protection-unsupported"
+family = "toolchain"
+match = '''['‘]-fcf-protection=\w+['’] is not supported for this target'''
+cluster_by = "class"
+hint = "Package forces -fcf-protection on an arch without CET support; make it x86-only."
+
+[[rule]]
+id = "missing-compiler"
+class = "missing-tool"
+family = "toolchain"
+match = '''Compiler (\S+?)(-\d+)? not on PATH|(\S+): command not found'''
+key = 1
+hint = "Hard-coded tool version or missing build-dependency."
+
+# -- architecture ------------------------------------------------------------
+
+[[rule]]
+id = "arch-unsupported"
+class = "arch-unsupported"
+family = "arch"
+match = '''does not support (your|this) arch|not supported on this arch|Architecture ['‘]\S+['’] not recognized|unsupported (architecture|platform)|#error .*\b(arch|architecture)\b'''
+cluster_by = "signature"
+hint = "Upstream does not support this architecture: port, or restrict Architecture: in debian/control and remove the binaries."
+
+# -- C/C++: GCC 15 / C23 / glibc ---------------------------------------------
+
+[[rule]]
+id = "c23-bool-keyword"
+class = "c23-keywords"
+family = "compile"
+match = '''['‘](bool|true|false)['’] cannot be defined via ['‘]typedef|expected identifier or ['‘]\(['’] before ['‘](bool|true|false)['’]|two or more data types in declaration specifiers.*bool|cannot use keyword ['‘](bool|true|false)['’]'''
+cluster_by = "class"
+hint = "GCC 15 defaults to -std=gnu23 where bool/true/false are keywords. Fix the code, or add -std=gnu17 to CFLAGS as a stopgap."
+
+[[rule]]
+id = "c23-empty-prototype"
+class = "c23-prototypes"
+family = "compile"
+match = '''too many arguments to function ['‘]\w+['’]; expected 0|conflicting types for ['‘]\w+['’]; have ['‘][^’']*\(void\)'''
+cluster_by = "class"
+hint = "C23: f() now means f(void). Add real prototypes, or -std=gnu17."
+
+[[rule]]
+id = "c23-const-qualifier"
+class = "c23-const-qualifier"
+family = "compile"
+match = '''discards ['‘]const['’] qualifier from pointer target type'''
+cluster_by = "class"
+hint = "glibc/C23 const-preserving strchr/strrchr/memchr etc. now return const char*: fix the variable types."
+
+[[rule]]
+id = "conflicting-types"
+class = "conflicting-types"
+family = "compile"
+match = '''conflicting types for ['‘](\w+)['’]'''
+key = 1
+hint = "Local declaration clashes with a system header (often after glibc or C23 changes)."
+
+[[rule]]
+id = "openssl-removed-api"
+class = "openssl3-api"
+family = "compile"
+match = '''\b(ENGINE_\w+|TLSv1(_[12])?_(client_|server_)?method|SSLv[23]_\w+|ERR_load_\w+_strings|RSA_generate_key|FIPS_mode\w*)\b'''
+cluster_by = "class"
+hint = "API removed or deprecated in OpenSSL 3.x: port to the EVP/TLS_*_method APIs."
+
+[[rule]]
+id = "python2-c-api"
+class = "python-c-api-removed"
+family = "compile"
+match = '''\b(PyInt_\w+|PyString_\w+|Py_InitModule\w*|PyEval_CallObject\w*|PyUnicode_AS_\w+|_PyLong_\w+)\b'''
+key = 1
+hint = "Python C API removed in recent Python 3; regenerate SWIG/Cython code or port."
+
+[[rule]]
+id = "implicit-function-declaration"
+class = "implicit-function-declaration"
+family = "compile"
+match = '''implicit declaration of function ['‘](\w+)['’]'''
+key = 1
+hint = "Missing #include or removed API; GCC 14+ makes this an error."
+
+[[rule]]
+id = "incompatible-pointer-types"
+class = "incompatible-pointer-types"
+family = "compile"
+match = '''incompatible[- ]pointer[- ]types|incompatible pointer type'''
+cluster_by = "class"
+hint = "GCC 14+ makes -Wincompatible-pointer-types an error."
+
+[[rule]]
+id = "incomplete-type"
+class = "incomplete-type"
+family = "compile"
+match = '''has incomplete type|invalid use of incomplete type|dereferencing pointer to incomplete type'''
+cluster_by = "signature"
+hint = "Often an opaque struct in a newer library (OpenSSL, libxml2, ffmpeg): use accessors."
+
+[[rule]]
+id = "missing-header"
+class = "missing-header"
+family = "compile"
+match = '''fatal error: ([\w/.+-]+\.h\w*): No such file or directory'''
+key = 1
+hint = "Header moved/removed or build-dependency missing."
+
+[[rule]]
+id = "werror"
+class = "werror"
+family = "compile"
+match = '''\[-Werror(?:=([\w+-]+))?\]'''
+key = 1
+hint = "A new warning promoted to error by the package's -Werror: fix it or drop -Werror."
+
+[[rule]]
+id = "cmake-min-version"
+class = "cmake-minimum-version"
+family = "packaging"
+match = '''Compatibility with CMake < [\d.]+ has been removed|cmake_minimum_required.*VERSION'''
+scope = "excerpt"
+cluster_by = "class"
+hint = "CMake 4 dropped compatibility with cmake_minimum_required < 3.5: bump it or pass -DCMAKE_POLICY_VERSION_MINIMUM=3.5."
+
+[[rule]]
+id = "autoconf-macro"
+class = "autoconf-undefined-macro"
+family = "packaging"
+match = '''undefined or overquoted macro: (\w+)|possibly undefined macro: (\w+)'''
+key = 1
+hint = "An m4 macro provider (gettext, libtool, ...) is missing or changed."
+
+[[rule]]
+id = "cxx-error"
+class = "cxx-compile-error"
+family = "compile"
+match = '''no matching function for call to|is not a member of|has no member named|was not declared in this scope|no type named'''
+cluster_by = "signature"
+
+# -- link --------------------------------------------------------------------
+
+[[rule]]
+id = "ld-package-metadata"
+class = "ld-package-metadata-unsupported"
+family = "link"
+match = '''unrecognized option ['‘]--package-metadata'''
+cluster_by = "class"
+hint = "dpkg injects -Wl,--package-metadata; linkers without it (mingw, some cross/embedded toolchains) fail. Filter it out of LDFLAGS for those targets."
+
+[[rule]]
+id = "ld-cannot-find-lib"
+class = "missing-library"
+family = "link"
+match = '''cannot find -l(\S+)'''
+key = 1
+hint = "Library not found at link time: missing build-dependency or renamed .so."
+
+[[rule]]
+id = "ld-multiple-definition"
+class = "multiple-definition"
+family = "link"
+match = '''multiple definition of [`'‘](\w+)'''
+cluster_by = "class"
+hint = "GCC 10+ -fno-common: a global defined in a header; add extern / define once."
+
+[[rule]]
+id = "undefined-reference"
+class = "undefined-reference"
+family = "link"
+match = '''undefined reference to [`'‘](\w+)'''
+key = 1
+hint = "Symbol missing at link time: library API change, missing -l, or link order (--as-needed)."
+
+# -- rust / python / other languages -----------------------------------------
+
+[[rule]]
+id = "rust-error"
+class = "rust-compile-error"
+family = "compile"
+match = '''^error\[(E\d{4})\]'''
+key = 1
+cluster_by = "signature"
+hint = "Rust crate API mismatch, usually a dependency version bump."
+
+[[rule]]
+id = "python-missing-module"
+class = "python-missing-module"
+family = "compile"
+match = '''ModuleNotFoundError: No module named ['‘]([\w.]+)['’]'''
+key = 1
+hint = "Module removed from stdlib (e.g. imp, distutils, asynchat) or missing build-dependency."
+
+[[rule]]
+id = "python-attribute-error"
+class = "python-api-change"
+family = "compile"
+match = '''AttributeError: module ['‘]([\w.]+)['’] has no attribute ['‘](\w+)['’]'''
+key = 1
+cluster_by = "signature"
+
+[[rule]]
+id = "test-needs-browser"
+class = "test-environment"
+family = "test"
+match = '''chromedriver|geckodriver|selenium\.common|Cannot open display|could not connect to display'''
+cluster_by = "class"
+hint = "Test needs a browser/display unavailable on buildds; skip or xvfb-run."
+
+# -- packaging -----------------------------------------------------------------
+
+[[rule]]
+id = "symbols-mismatch"
+class = "symbols-file-mismatch"
+family = "packaging"
+step = "dpkg-gensymbols"
+match = '''.'''
+cluster_by = "package"
+hint = "debian/*.symbols out of date for this arch/toolchain: update symbols (often arch- or LTO-specific)."
+
+[[rule]]
+id = "permission-denied"
+class = "permission-denied"
+family = "packaging"
+match = '''Permission denied'''
+cluster_by = "signature"
+hint = "Script lost its executable bit (patch or tarball); chmod in debian/rules."
+
+# -- tests (generic; keep last) ------------------------------------------------
+
+[[rule]]
+id = "test-failure"
+class = "test-failure"
+family = "test"
+match = '''^(FAIL|FAILED|ERROR)[: ]|^# (FAIL|ERROR):\s+[1-9]|tests? failed|test\(s\) failed|^failures:$|test result: FAILED|^E\s{3}|\bfailed:\s*$|The following tests FAILED|thrown in the test body'''
+cluster_by = "signature"
+hint = "Test suite failure: check if arch-specific, flaky, or caused by a dependency update."
+
+[[rule]]
+id = "test-step"
+class = "test-failure"
+family = "test"
+step = "dh_auto_test"
+match = '''.'''
+cluster_by = "package"

@@ -101,6 +101,18 @@ SCHEMA = [
         PRIMARY KEY (unit_id, stage)
     );
     """,
+    # v2: classification results denormalized onto items for grouping
+    """
+    ALTER TABLE item ADD COLUMN cluster_id TEXT;
+    ALTER TABLE item ADD COLUMN class TEXT;
+    ALTER TABLE item ADD COLUMN family TEXT;
+    CREATE INDEX item_cluster ON item(cluster_id);
+    """,
+    # v3: which process owns a run, to detect runs that died
+    """
+    ALTER TABLE run ADD COLUMN pid INTEGER;
+    ALTER TABLE run ADD COLUMN host TEXT;
+    """,
 ]
 
 

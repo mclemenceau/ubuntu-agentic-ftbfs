@@ -26,6 +26,13 @@ if TYPE_CHECKING:
     from .pipeline import StageSpec
 
 
+@dataclass(frozen=True)
+class Paths:
+    root: Path  # project dir (config, rules)
+    work: Path  # per-unit artifacts
+    cache: Path  # downloads shared across runs
+
+
 class Units:
     """The selected items and the package/cluster units derived from them."""
 
@@ -81,7 +88,7 @@ class Ledger:
 class Context:
     def __init__(self, *, db: DB, run_id: int | None, spec: StageSpec,
                  units: Units, backends: dict[str, AgentBackend],
-                 work_root: Path, attempts: dict[str, int],
+                 paths: Paths, attempts: dict[str, int],
                  unit_types: dict[str, UnitType]):
         self.db = db
         self.unit_types = unit_types
@@ -89,7 +96,7 @@ class Context:
         self.spec = spec
         self.units = units
         self.backends = backends
-        self.work_root = work_root
+        self.paths = paths
         self.attempts = attempts
         self.ledger: dict[str, Ledger] = {}
         self._lock = threading.Lock()
@@ -107,6 +114,14 @@ class Context:
     def item(self, item_id: str) -> dict:
         return self.units.items[item_id]
 
+    def update_item(self, item_id: str, **fields) -> None:
+        """Denormalize stage output onto the item row (and the in-memory
+        unit, so later stages in this run see it)."""
+        cols = ", ".join(f"{k}=?" for k in fields)
+        self.db.execute(f"UPDATE item SET {cols} WHERE id=?",
+                        (*fields.values(), item_id))
+        self.units.items[item_id].update(fields)
+
     def package(self, source: str) -> dict | None:
         row = self.db.one("SELECT * FROM package WHERE source=?", (source,))
         return dict(row) if row else None
@@ -123,7 +138,7 @@ class Context:
         row = latest_result(self.db, targets[0], stage)
         if row is None:
             return None
-        return {"status": row["status"], **json.loads(row["data"])}
+        return {**json.loads(row["data"]), "status": row["status"]}
 
     def feedback(self, unit_id: str) -> list[dict]:
         """Loop-back payloads sent to this stage for this unit, oldest
@@ -141,12 +156,12 @@ class Context:
         unit = self.stage.unit
         if unit == UnitType.ITEM:
             item = self.item(unit_id)
-            base = self.work_root / item["source"] / item["version"]
+            base = self.paths.work / item["source"] / item["version"]
             base = base / item["arch"]
         elif unit == UnitType.PACKAGE:
-            base = self.work_root / unit_id / "_package"
+            base = self.paths.work / unit_id / "_package"
         else:
-            base = self.work_root / "_clusters" / unit_id
+            base = self.paths.work / "_clusters" / unit_id
         path = base / self.spec.name
         path.mkdir(parents=True, exist_ok=True)
         return path

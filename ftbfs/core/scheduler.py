@@ -26,11 +26,10 @@ import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
-from pathlib import Path
 
 from ..agents.base import AgentBackend
 from ..db import DB, now
-from .context import Context, Units
+from .context import Context, Paths, Units
 from .expr import evaluate
 from .pipeline import Pipeline, StageSpec
 from .stage import FINAL, Kind, StageResult, Status
@@ -69,14 +68,14 @@ class Cancelled(Exception):
 
 class Scheduler:
     def __init__(self, db: DB, pipeline: Pipeline, units: Units,
-                 backends: dict[str, AgentBackend], work_root: Path,
+                 backends: dict[str, AgentBackend], paths: Paths,
                  concurrency: dict[str, int] | None = None,
                  run_id: int | None = None):
         self.db = db
         self.pipeline = pipeline
         self.units = units
         self.backends = backends
-        self.work_root = work_root
+        self.paths = paths
         self.concurrency = {**DEFAULT_CONCURRENCY,
                             **{Kind(k): v
                                for k, v in (concurrency or {}).items()}}
@@ -103,15 +102,15 @@ class Scheduler:
                 out[name] = None
             elif len(targets) == 1:
                 r = rows[0][1]
-                out[name] = {"status": r["status"], "id": r["id"],
-                             **json.loads(r["data"])}
+                out[name] = {**json.loads(r["data"]),
+                             "status": r["status"], "id": r["id"]}
             else:
                 ok = any(r["status"] == Status.OK for _, r in rows)
                 out[name] = {
                     "status": Status.OK if ok else rows[-1][1]["status"],
                     "id": [r["id"] for _, r in rows],
-                    "units": {t: {"status": r["status"],
-                                  **json.loads(r["data"])}
+                    "units": {t: {**json.loads(r["data"]),
+                                  "status": r["status"]}
                               for t, r in rows},
                 }
         return out
@@ -193,7 +192,7 @@ class Scheduler:
     def _context(self, spec: StageSpec, attempts: dict[str, int]) -> Context:
         return Context(db=self.db, run_id=self.run_id, spec=spec,
                        units=self.units, backends=self.backends,
-                       work_root=self.work_root, attempts=attempts,
+                       paths=self.paths, attempts=attempts,
                        unit_types={s.name: s.stage.unit
                                    for s in self.pipeline})
 

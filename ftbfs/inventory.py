@@ -67,8 +67,11 @@ def store(db: DB, snap: Snapshot, path: Path) -> Diff:
                         new.append(iid)
                     db.execute(
                         """
-                        INSERT INTO item VALUES
-                          (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        INSERT INTO item (id, source, version, arch,
+                          pocket, changed_by, state, build_id, build_url,
+                          log_url, finished_at, note, lifecycle,
+                          first_seen, last_seen)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                         ON CONFLICT(id) DO UPDATE SET
                           pocket=excluded.pocket,
                           changed_by=excluded.changed_by,
