@@ -56,8 +56,8 @@ an investigation report, shown on a dashboard.
 | 3 | Debian/upstream facts (Sources, UDD, repro builds) | done | 801ec9b |
 | 4 | Claude backend, triage, diagnose | done | 820c3be |
 | 5 | Builder: reproduce (local sbuild; PPA path written) | local done, PPA deferred | 161fa34 |
-| 6 | Dev agent + verify loop | done (retry fix uncommitted) | 94a2368 |
-| 7 | Web app + investigation reports | **done, uncommitted** | - |
+| 6 | Dev agent + verify loop | done | 94a2368, 727c17a |
+| 7 | Web app + investigation reports | done | ee9bddc |
 | 8 | Extensibility proof: adversarial review, opencode, lp_file_bug | not started | - |
 
 Commits after the first two are **unsigned**, at your request, because
@@ -104,7 +104,7 @@ gpg-agent kept timing out.
   hit your session limit") instead of the CLI's misleading subtype
   "success". That was why run 17's escalated third attempts errored.
 
-## Milestone 7: web app and reports (uncommitted)
+## Milestone 7: web app and reports
 
 - `ftbfs serve` (FastAPI + Jinja + htmx + SSE, `ftbfs/web/`):
   - overview (snapshot delta, DAG with counts, runs)
