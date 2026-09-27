@@ -22,6 +22,9 @@ override them: `--component`, `--state F`, `--arch`, `--pocket`,
 `--packageset`, `--team`, `--source 'python-*'`, `--include-bugged`,
 `--limit`, `--profile NAME`.
 
+Day-to-day operation (cadence, review routine, what to watch) is in
+`docs/OPERATIONS.md`.
+
 `ftbfs export --out ftbfs.json` writes the selection as JSON, including
 build and log URLs. Every ingest also keeps a full snapshot in
 `state/snapshots/`.
