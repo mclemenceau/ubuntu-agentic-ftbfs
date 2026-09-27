@@ -46,8 +46,9 @@ small = "haiku"
 medium = "sonnet"
 large = "opus"
 
+# opencode: provider/model ids, with the credentials opencode already has
+# (`opencode auth login`). Pinned versions keep runs reproducible.
 [backend.opencode.tiers]
-# Filled in when the opencode backend lands (provider/model ids).
-small = ""
-medium = ""
-large = ""
+small = "openrouter/anthropic/claude-haiku-4.5"
+medium = "openrouter/anthropic/claude-sonnet-5"
+large = "openrouter/anthropic/claude-opus-5.5"

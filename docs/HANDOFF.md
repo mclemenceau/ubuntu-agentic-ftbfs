@@ -36,8 +36,11 @@ an investigation report, shown on a dashboard.
   - `claude`: `claude -p`, isolated (no CLAUDE.md, MCP, skills or
     sessions), with its own system prompt. About 400 tokens of fixed
     overhead instead of about 23k.
+  - `opencode`: `opencode run --format json`, isolated the same way
+    (private config home in `state/opencode/`, inline agent with an
+    allowlist of permissions, nothing outside cwd). Tiers point at the
+    same Claude models through OpenRouter.
   - `fake`: for tests.
-  - opencode: designed for, not written.
 - **Observability:**
   - `event` table
   - per-attempt `prompt.md` / `transcript.jsonl` / `usage.json` under
@@ -58,7 +61,7 @@ an investigation report, shown on a dashboard.
 | 5 | Builder: reproduce (local sbuild; PPA path written) | local done, PPA deferred | 161fa34 |
 | 6 | Dev agent + verify loop | done | 94a2368, 727c17a |
 | 7 | Web app + investigation reports | done | ee9bddc |
-| 8 | Extensibility proof: adversarial review, opencode, lp_file_bug | not started | - |
+| 8 | Extensibility proof: adversarial review, opencode, lp_file_bug | opencode backend done | uncommitted |
 
 Commits after the first two are **unsigned**, at your request, because
 gpg-agent kept timing out.
@@ -103,6 +106,36 @@ gpg-agent kept timing out.
 - The claude backend now reports API failures (e.g. "API 429: You've
   hit your session limit") instead of the CLI's misleading subtype
   "success". That was why run 17's escalated third attempts errored.
+
+## Milestone 8 (part): opencode backend
+
+- `ftbfs/agents/opencode.py`:
+  - Isolation:
+    - `XDG_CONFIG_HOME=state/opencode`
+    - `OPENCODE_DISABLE_PROJECT_CONFIG` and `OPENCODE_DISABLE_CLAUDE_CODE`
+    - `--pure`
+    - one inline `ftbfs` agent via `OPENCODE_CONFIG_CONTENT`
+  - Permissions: `"*": "deny"` plus the policy's tools, and
+    `external_directory` denied.
+  - The prompt goes on stdin. A `--title` skips the title LLM call.
+  - The answer is the text of the last step. Usage and cost are summed
+    from `step_finish` events.
+  - `max_budget_usd` kills the agent when summed cost exceeds it.
+    `effort` maps to the agent `variant`, `max_turns` to `steps`.
+  - The transcript is bookended by `ftbfs_start` and `ftbfs_end`. The
+    web console renders opencode events.
+- `max_turns` is now unset unless configured. Before, the context
+  defaulted it to 1, which claude ignored but opencode would have
+  enforced as `steps`. claude now gets `--max-turns` when it is set.
+- E2E (scratch copy of the state, OpenRouter key):
+  - triage and diagnose on the 5 test clusters: 5 of 5 verdicts match
+    claude's, $0.018 for triage and $0.02 to $0.03 per diagnosis.
+  - dev and verify on hexcurse: the same fix as claude's, verified by
+    sbuild, $0.053, 7 steps.
+  - Sonnet's `medium` variant did not think where claude's `--effort
+    medium` did (1k vs 4k output tokens). Watch diagnosis depth in the
+    A/B.
+- Next: A/B on the 30-cluster sample, then the first full run.
 
 ## Milestone 7: web app and reports
 
@@ -161,7 +194,8 @@ gpg-agent kept timing out.
 
 - **M8:** extensibility proof:
   - `adversarial_review` stage (on_fail goes to dev), config only
-  - opencode backend, with triage A/B against claude
+  - opencode backend: done; triage/diagnose A/B against claude on the
+    30-cluster sample still to run
   - `lp_file_bug` in dry-run
 
 ## How to resume

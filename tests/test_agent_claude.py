@@ -62,7 +62,8 @@ def test_tool_flags():
 def test_lean_isolated_command(backend, tmp_path):
     cmd = backend.command(req(tmp_path, system="be terse",
                               output_schema={"type": "object"},
-                              max_budget_usd=0.5, effort="low"))
+                              max_budget_usd=0.5, effort="low",
+                              max_turns=7))
     for flag in ("--strict-mcp-config", "--no-session-persistence",
                  "--disable-slash-commands"):
         assert flag in cmd
@@ -71,6 +72,8 @@ def test_lean_isolated_command(backend, tmp_path):
     assert cmd[cmd.index("--model") + 1] == "haiku"
     assert cmd[cmd.index("--max-budget-usd") + 1] == "0.5"
     assert cmd[cmd.index("--effort") + 1] == "low"
+    assert cmd[cmd.index("--max-turns") + 1] == "7"
+    assert "--max-turns" not in backend.command(req(tmp_path))
 
 
 def test_run_streams_transcript_and_parses_result(backend, tmp_path):

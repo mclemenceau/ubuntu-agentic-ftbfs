@@ -152,6 +152,29 @@ input tokens of overhead instead of about 23k. Output is enforced with
 - `effort` (low to max): thinking tokens dominate output cost
 - `max_budget_usd`
 - `timeout`
+- `max_turns` (unset: the backend's own limit)
+
+The `opencode` backend runs `opencode run --format json` with models as
+`provider/model` ids (e.g. `openrouter/anthropic/claude-sonnet-5`) and
+the credentials opencode already has (`opencode auth login`). It is
+isolated the same way: a private config home under `state/opencode/`, no
+global or project config, MCP servers, plugins, skills or `~/.claude`
+rules. Each call gets one inline agent whose permissions are an explicit
+allowlist built from the stage's tool policy, and nothing outside the
+working directory is reachable. Differences from `claude`:
+- no structured output: the schema goes in the prompt, and the answer is
+  validated and repaired once with the small tier
+- `effort` maps to the model's `--variant`, which is not calibrated like
+  claude's `--effort` (e.g. Sonnet at `medium` often does not think)
+- `max_budget_usd` is enforced by summing step costs and killing the
+  agent
+- sessions are kept in opencode's own database, titled
+  `ftbfs <unit>/<stage>/attempt-N`
+
+Switch every agent stage with `default_backend = "opencode"` in
+`config.toml`, or one stage with `agent = { backend = "opencode", ... }`.
+The agent spec is part of the cache key, so switching re-runs that stage
+(and whatever depends on its result).
 
 ## LLM stages
 

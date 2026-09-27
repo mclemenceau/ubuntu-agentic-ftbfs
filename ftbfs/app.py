@@ -50,7 +50,8 @@ class App:
 
     def backends(self) -> dict:
         names = {s.agent.backend for s in self.pipeline if s.agent}
-        return {n: make_backend(n, self.config.backends.get(n, {}))
+        return {n: make_backend(n, {"state_dir": self.config.state_dir,
+                                    **self.config.backends.get(n, {})})
                 for n in names}
 
     # -- ingest -----------------------------------------------------------

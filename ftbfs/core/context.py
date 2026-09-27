@@ -251,7 +251,7 @@ class Context:
             attempt_dir=adir,
             tier=tier,
             tool_policy=tool_policy or ToolPolicy.none(),
-            max_turns=max_turns or spec.max_turns or 1,
+            max_turns=max_turns or spec.max_turns,
             output_schema=output_schema,
             timeout=spec.timeout,
             system=system,

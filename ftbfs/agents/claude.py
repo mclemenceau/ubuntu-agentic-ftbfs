@@ -79,6 +79,8 @@ class ClaudeBackend(AgentBackend):
             cmd += ["--effort", req.effort]
         if req.max_budget_usd:
             cmd += ["--max-budget-usd", str(req.max_budget_usd)]
+        if req.max_turns:
+            cmd += ["--max-turns", str(req.max_turns)]
         return cmd
 
     def run(self, req: AgentRequest) -> AgentResult:

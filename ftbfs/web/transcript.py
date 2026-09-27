@@ -1,8 +1,8 @@
 """Turn a backend's transcript.jsonl into console entries.
 
-Understands the claude stream-json events and the fake backend's lines;
-anything else is shown raw, so a new backend is visible before it gets
-a dedicated renderer.
+Understands the claude stream-json events, opencode's --format json
+events and the fake backend's lines; anything else is shown raw, so a new
+backend is visible before it gets a dedicated renderer.
 """
 
 from __future__ import annotations
@@ -48,6 +48,71 @@ def _tool_input(name: str, args: dict, cwd: str | None) -> str:
     return json.dumps(args, indent=1)
 
 
+# opencode tool names and argument keys, in the claude vocabulary that
+# _tool_input renders.
+_OC_TOOLS = {"read": "Read", "write": "Write", "edit": "Edit",
+             "grep": "Grep", "glob": "Glob", "bash": "Bash",
+             "list": "List", "webfetch": "WebFetch"}
+_OC_ARGS = {"filePath": "file_path", "oldString": "old_string",
+            "newString": "new_string"}
+
+
+def _opencode_tool(part: dict, state: dict) -> list[Entry]:
+    name = _OC_TOOLS.get(part.get("tool"), part.get("tool", "?"))
+    st = part.get("state") or {}
+    args = {_OC_ARGS.get(k, k): v for k, v in (st.get("input") or {}).items()}
+    out = [Entry("tool", name, _clip(_tool_input(name, args,
+                                                 state.get("cwd"))))]
+    if st.get("status") == "error":
+        out.append(Entry("result", f"{name} result",
+                         _clip(str(st.get("error", "")), 1500), error=True))
+    elif "output" in st:
+        out.append(Entry("result", f"{name} result",
+                         _clip(str(st["output"]), 1500)))
+    return out
+
+
+def _opencode(e: dict, state: dict) -> list[Entry] | None:
+    """Entries for an opencode event (or the ftbfs_* lines the backend
+    writes around them); None when the line is not one of those."""
+    kind, part = e.get("type"), e.get("part") or {}
+    if kind == "ftbfs_start":
+        state["cwd"] = e.get("cwd")
+        perm = e.get("permission") or {}
+        tools = ", ".join(k for k, v in perm.items()
+                          if v != "deny" and k != "*") or "none"
+        return [Entry("start", f"session start: {e.get('model', '?')}",
+                      f"tools: {tools}")]
+    if kind == "ftbfs_end":
+        bits = [f"{e.get('steps', '?')} steps"]
+        if e.get("cost") is not None:
+            bits.append(f"${e['cost']:.4f}")
+        if e.get("duration_s"):
+            bits.append(f"{e['duration_s']:.0f} s")
+        err = not e.get("ok")
+        return [Entry("final", "finished" + (" with error" if err else ""),
+                      ", ".join(bits) + (f"\n{e.get('error')}" if err
+                                         else ""), error=err)]
+    if kind == "text" and "part" in e:
+        text = part.get("text", "")
+        return [Entry("text", "assistant", _clip(text))] \
+            if text.strip() else []
+    if kind == "reasoning":
+        text = part.get("text", "")
+        return [Entry("thinking", "thinking", _clip(text))] \
+            if text.strip() else []
+    if kind == "tool_use":
+        return _opencode_tool(part, state)
+    if kind == "error":
+        err = e.get("error") or {}
+        msg = (err.get("data") or {}).get("message") or json.dumps(err)
+        return [Entry("final", f"error: {err.get('name', '?')}",
+                      _clip(msg), error=True)]
+    if kind in ("step_start", "step_finish"):
+        return []  # bookkeeping (tokens, cost), totalled in ftbfs_end
+    return None
+
+
 def _result_text(content) -> str:
     if isinstance(content, list):
         return "\n".join(c.get("text", "") if isinstance(c, dict) else
@@ -61,6 +126,9 @@ def parse_line(line: str, state: dict) -> list[Entry]:
     except json.JSONDecodeError:
         return [Entry("raw", "output", _clip(line))] if line.strip() else []
     kind = e.get("type")
+    oc = _opencode(e, state)
+    if oc is not None:
+        return oc
     if kind == "system" and e.get("subtype") == "init":
         state["cwd"] = e.get("cwd")
         tools = ", ".join(e.get("tools") or []) or "none"

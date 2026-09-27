@@ -235,6 +235,23 @@ uv run ftbfs status
 
 After that, daily runs are incremental.
 
+### Choosing the agent backend
+
+`[agents] default_backend` in `config.toml` picks `claude` (`claude -p`,
+your Claude subscription or key) or `opencode` (`opencode run`, e.g. an
+OpenRouter key). The tier models are under `[backend.<name>.tiers]`.
+Check the key once with `opencode auth list`. Changing the backend
+re-runs the agent stages on the next run, so compare on a sample before
+switching a full run:
+
+```sh
+uv run ftbfs run --sample-clusters 30 --seed 1 --until diagnose
+uv run ftbfs verdicts --sample-clusters 30 --seed 1
+```
+
+The older backend's results stay in the database (`stage_result`), so
+both sets of verdicts can be compared there.
+
 ## Daily routine
 
 1. `ftbfs run --ingest`
@@ -270,7 +287,8 @@ After that, daily runs are incremental.
 
 ### API limits
 
-- A "429 session limit" shows up as an error on Attention.
+- A "429 session limit" (claude) or an `APIError` (opencode) shows up as
+  an error on Attention.
 - Wait for the limit to reset, then `ftbfs retry <stage> <unit>`.
   `max_errors = 1` on dev keeps it from retrying on its own.
 

@@ -44,7 +44,7 @@ class AgentRequest:
     attempt_dir: Path
     tier: Tier = "small"
     tool_policy: ToolPolicy = field(default_factory=ToolPolicy.none)
-    max_turns: int = 1
+    max_turns: int | None = None  # None: the backend's own limit
     output_schema: dict | None = None  # JSON schema for the final answer
     timeout: int = 600
     # Replaces the backend's default (large, agentic) system prompt. Lean
@@ -91,8 +91,11 @@ class AgentBackend(ABC):
     # schema is spelled out in the prompt and validated afterwards.
     native_schema: bool = False
 
-    def __init__(self, tiers: dict[str, str] | None = None, **options):
+    def __init__(self, tiers: dict[str, str] | None = None,
+                 state_dir: Path | str = "state", **options):
         self.tiers = tiers or {}
+        # Where a backend may keep private, persistent files.
+        self.state_dir = Path(state_dir)
         self.options = options
 
     def model_for(self, tier: Tier) -> str:
