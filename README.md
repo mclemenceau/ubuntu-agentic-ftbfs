@@ -196,3 +196,6 @@ does the **Signals** page of the web UI.
 uv run pytest
 uv run ruff check .
 ```
+
+`make help` lists shortcuts for the common tasks: `make check` (lint +
+tests), `make serve`, `make run ARGS='--source xfaces'`, etc.
