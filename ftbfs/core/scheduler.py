@@ -117,7 +117,7 @@ class Scheduler:
 
     def _unit_data(self, spec: StageSpec, uid: str) -> dict:
         if spec.stage.unit == "item":
-            row = self.units.items[uid]
+            row = self.units.row(uid)
             keys = ("id", "state", "build_id", "log_url", "pocket")
             return {k: row.get(k) for k in keys}
         return {"id": uid}
@@ -161,7 +161,7 @@ class Scheduler:
             )
             env = {k: v for k, v in env.items() if v is not None}
             if spec.stage.unit == "item":
-                env["item"] = self.units.items[uid]
+                env["item"] = self.units.row(uid)
             if not evaluate(spec.when, env):
                 return Decision(False, f"when is false: {spec.when}")
         reason = spec.stage.eligible(ctx, uid)
@@ -178,12 +178,16 @@ class Scheduler:
                 return Decision(False, "rejected at gate")
         ih = self.inputs_hash(spec, uid, ctx, deps)
         prev = self.db.query(
-            "SELECT status FROM stage_result WHERE unit_id=? AND stage=?"
-            " AND inputs_hash=? ORDER BY id DESC",
+            "SELECT status, run_id FROM stage_result WHERE unit_id=? AND"
+            " stage=? AND inputs_hash=? ORDER BY id DESC",
             (uid, spec.name, ih),
         )
         if prev and prev[0]["status"] in FINAL:
             return Decision(False, f"cached ({prev[0]['status']})", ih)
+        if (prev and prev[0]["status"] == Status.PENDING
+                and self.run_id is not None
+                and prev[0]["run_id"] == self.run_id):
+            return Decision(False, "pending (already polled this run)", ih)
         errors = sum(1 for r in prev if r["status"] == Status.ERROR)
         if errors >= MAX_ERRORS_PER_INPUTS:
             return Decision(False, f"gave up after {errors} errors", ih)
@@ -227,7 +231,9 @@ class Scheduler:
                 for status, n in counts.items():
                     per = totals.setdefault(name, {})
                     per[status] = per.get(status, 0) + n
-                did_work |= bool(counts)
+                # Pending polls are not progress; looping on them would
+                # just hammer the external service.
+                did_work |= any(k != Status.PENDING for k in counts)
             if not did_work:
                 break
         return totals
@@ -312,6 +318,19 @@ class Scheduler:
             res.cost = res.cost if res.cost is not None else ledger.cost
             res.backend = res.backend or ledger.backend
             res.model = res.model or ledger.model
+        prev = latest_result(self.db, res.unit_id, spec.name)
+        if (prev is not None and prev["status"] == Status.PENDING
+                and prev["inputs_hash"] == inputs_hash):
+            # Same external job, new poll: update in place instead of
+            # piling up one row per poll.
+            self.db.execute(
+                "UPDATE stage_result SET run_id=?, status=?, data=?,"
+                " artifacts=?, ts=? WHERE id=?",
+                (self.run_id, res.status, json.dumps(res.data),
+                 json.dumps(res.artifacts), now(), prev["id"]))
+            ctx.event("unit_end", unit=res.unit_id, status=res.status,
+                      result_id=prev["id"], poll=True)
+            return
         rid = self.db.execute(
             "INSERT INTO stage_result (run_id, unit_type, unit_id, stage,"
             " stage_version, inputs_hash, attempt, status, data, artifacts,"

@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Agentic review pipeline for Ubuntu FTBFS"
 requires-python = ">=3.12"
 dependencies = [
+    "launchpadlib>=2.1.0",
     "lxml>=5",
     "psycopg[binary]>=3",
     "pydantic>=2",

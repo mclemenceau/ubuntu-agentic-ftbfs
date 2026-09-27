@@ -35,3 +35,13 @@ agent = { tier = "small", max_budget_usd = 0.5 }
 after = ["triage"]
 when = "triage.fixable != 'no' and triage.action in ['patch', 'investigate', 'report-upstream', 'restrict-arch']"
 agent = { tier = "medium", effort = "medium", max_budget_usd = 1.0 }
+
+# Rebuild the failing version and compare with Launchpad (0 tokens).
+# Human-gated: `ftbfs approve reproduce <source|item>`.
+[stage.reproduce]
+after = ["excerpt", "triage"]
+when = "triage.action in ['patch', 'investigate', 'report-upstream']"
+gate = "manual"
+local_arches = ["amd64"]
+parallel = 8
+# ppa = "<lp-user>/ftbfs-repro"   # enables other arches via Launchpad

@@ -351,7 +351,26 @@ def cmd_status(app: App, a) -> None:
 
 def cmd_approve(app: App, a) -> None:
     decision = "rejected" if a.reject else "approved"
-    for uid in a.units:
+    spec = app.pipeline.specs.get(a.stage)
+    if spec is None:
+        sys.exit(f"stage {a.stage!r} is not in the pipeline")
+    units = []
+    for target in a.units:
+        # For item stages a source name expands to its items waiting at
+        # this gate; if none are waiting, to all its active items.
+        if spec.stage.unit == "item" and "/" not in target:
+            ids = _resolve_items(app, target)
+            waiting = [r["unit_id"] for r in app.db.query(
+                "SELECT unit_id FROM gate WHERE stage=? AND"
+                " decision='pending' AND unit_id LIKE ?",
+                (a.stage, f"{target}/%"))]
+            units += waiting or [
+                iid for iid in ids
+                if app.db.one("SELECT lifecycle FROM item WHERE id=?",
+                              (iid,))["lifecycle"] != "gone"]
+        else:
+            units.append(target)
+    for uid in units:
         app.db.execute(
             "INSERT INTO gate VALUES (?, ?, ?, ?, ?, ?)"
             " ON CONFLICT(unit_id, stage) DO UPDATE SET"
@@ -368,6 +387,16 @@ def cmd_retry(app: App, a) -> None:
     for uid in a.units:
         app.db.event("retry", unit=uid, stage=a.stage, by="cli")
         print(f"retry requested: {a.stage} {uid}")
+
+
+def cmd_lp_login(app: App, a) -> None:
+    """Interactive, one time: authorize this tool on Launchpad."""
+    from .builder.ppa import login
+
+    creds = app.config.state_dir / "lp-credentials"
+    creds.parent.mkdir(parents=True, exist_ok=True)
+    lp = login(creds)
+    print(f"logged in as {lp.me.name}; credentials in {creds}")
 
 
 def cmd_control(app: App, a) -> None:
@@ -470,6 +499,10 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("stage")
     s.add_argument("units", nargs="+")
     s.set_defaults(func=cmd_retry)
+
+    s = sub.add_parser("lp-login", help="authorize Launchpad access"
+                       " (interactive, once)")
+    s.set_defaults(func=cmd_lp_login)
 
     s = sub.add_parser("control", help="pause/resume/cancel a run")
     s.add_argument("action", choices=["pause", "resume", "cancel"])

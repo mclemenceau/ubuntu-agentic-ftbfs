@@ -46,6 +46,8 @@ class Status(StrEnum):
     SKIP = "skip"  # stage decided it does not apply
     NEEDS_HUMAN = "needs_human"  # cannot proceed without a person
     ERROR = "error"  # crash / transient problem: retried next run
+    PENDING = "pending"  # waiting on something external (e.g. a PPA
+    #                      build): polled once per run, not an error
 
 
 # Statuses that are final for a given set of inputs (cache hits).

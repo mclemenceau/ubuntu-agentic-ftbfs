@@ -145,7 +145,8 @@ class App:
         status = "done"
         totals: dict = {}
         try:
-            totals = self.scheduler(Units(items), run_id).run(only, until)
+            totals = self.scheduler(Units(items, self.db), run_id).run(
+                only, until)
         except Cancelled:
             status = "cancelled"
         except BaseException as e:
@@ -167,7 +168,7 @@ class App:
         rows = {r["id"]: r for r in all_items(self.db)}
         out = {}
         selected = self.select(flt)
-        units = Units(selected)
+        units = Units(selected, self.db)
         sched = self.scheduler(units)
         for iid in item_ids:
             row = rows[iid]

@@ -338,3 +338,27 @@ def test_new_optional_agent_field_keeps_cache(db, units, tmp_path):
     assert _non_default(AgentSpec(backend="claude")) == {"backend": "claude"}
     assert _non_default(AgentSpec(backend="claude", effort="low")) == {
         "backend": "claude", "effort": "low"}
+
+
+def test_cluster_cache_independent_of_selection(db, units, tmp_path):
+    ids = list(units.items)
+    for iid in ids:  # all five items share one cluster
+        db.execute("UPDATE item SET cluster_id='c1' WHERE id=?", (iid,))
+    rows = [dict(r, cluster_id="c1") for r in units.items.values()]
+    item_stage = make_stage("a")
+    cluster_stage = make_stage("summ", unit=UnitType.CLUSTER, fn=lambda ctx,
+                               uid: {"members": len(ctx.units.children(
+                                   UnitType.CLUSTER, uid))})
+    conf = {"a": {}, "summ": {"after": ["a"]}}
+    stages = [item_stage, cluster_stage]
+    full = sched(db, Units(rows, db), tmp_path, stages, conf)
+    full.run()
+    assert calls("summ") == ["c1"]
+    data = json.loads(db.one("SELECT data FROM stage_result"
+                             " WHERE stage='summ'")["data"])
+    assert data["members"] == 5
+
+    CALLS.clear()
+    subset = sched(db, Units(rows[:2], db), tmp_path, stages, conf)
+    subset.run()
+    assert calls("summ") == []  # same global membership -> cached

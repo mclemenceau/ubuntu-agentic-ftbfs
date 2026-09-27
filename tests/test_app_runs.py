@@ -51,3 +51,24 @@ def test_legacy_run_reaped_when_silent(tmp_path):
         (run_id,),
     )
     assert app.reap_stale_runs() == [run_id]
+
+
+def test_approve_expands_source_to_waiting_items(tmp_path, snapshot):
+    from ftbfs.cli import main
+    from ftbfs.db import now
+    from ftbfs.inventory import store
+
+    (tmp_path / "pipeline.toml").write_text(
+        '[stage.excerpt]\n[stage.reproduce]\nafter = ["excerpt"]\n'
+        'gate = "manual"\n')
+    app = App(tmp_path)
+    store(app.db, snapshot, tmp_path / "s.json")
+    ids = [r["id"] for r in app.db.query(
+        "SELECT id FROM item WHERE source='freehsm-c' ORDER BY id")]
+    assert len(ids) > 1
+    app.db.execute("INSERT INTO gate VALUES (?, 'reproduce', 'pending',"
+                   " NULL, NULL, ?)", (ids[0], now()))
+    main(["--root", str(tmp_path), "approve", "reproduce", "freehsm-c"])
+    approved = [r["unit_id"] for r in app.db.query(
+        "SELECT unit_id FROM gate WHERE decision='approved'")]
+    assert approved == [ids[0]]

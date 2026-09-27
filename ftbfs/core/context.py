@@ -35,10 +35,19 @@ class Paths:
 
 
 class Units:
-    """The selected items and the package/cluster units derived from them."""
+    """The selected items and the package/cluster units derived from them.
 
-    def __init__(self, items: list):
+    The selection decides which units run. Cluster *membership* is global
+    when a db is given: every active, classified item of the cluster, so
+    a cluster's inputs (and cached LLM results) do not depend on how the
+    run was filtered or sampled.
+    """
+
+    def __init__(self, items: list, db: DB | None = None):
         self.items: dict[str, dict] = {r["id"]: dict(r) for r in items}
+        self.known: dict[str, dict] = dict(self.items)
+        self.db = db
+        self._members: dict[str, list[str]] = {}
 
     def of(self, utype: UnitType) -> list[str]:
         if utype == UnitType.ITEM:
@@ -50,11 +59,33 @@ class Units:
     def _key(utype: UnitType) -> str:
         return "source" if utype == UnitType.PACKAGE else "cluster_id"
 
+    def row(self, item_id: str) -> dict:
+        return self.known[item_id]
+
     def children(self, utype: UnitType, uid: str) -> list[str]:
         if utype == UnitType.ITEM:
             return [uid]
+        if utype == UnitType.CLUSTER and self.db is not None:
+            return self._cluster_members(uid)
         key = self._key(utype)
         return [i for i, row in self.items.items() if row.get(key) == uid]
+
+    def _cluster_members(self, cluster_id: str) -> list[str]:
+        if cluster_id not in self._members:
+            from ..filters import all_items
+
+            rows = all_items(self.db, "WHERE i.cluster_id = ? AND"
+                             " i.lifecycle != 'gone'", (cluster_id,))
+            for r in rows:
+                self.known.setdefault(r["id"], dict(r))
+            self._members[cluster_id] = [r["id"] for r in rows]
+        return self._members[cluster_id]
+
+    def set_cluster(self, item_id: str, cluster_id: str | None) -> None:
+        for row in (self.items.get(item_id), self.known.get(item_id)):
+            if row is not None:
+                row["cluster_id"] = cluster_id
+        self._members.clear()
 
     def related(self, from_type: UnitType, uid: str,
                 to_type: UnitType) -> list[str]:
@@ -65,7 +96,7 @@ class Units:
             if to_type == UnitType.ITEM:
                 target = item
             else:
-                target = self.items[item].get(self._key(to_type))
+                target = self.known[item].get(self._key(to_type))
             if target and target not in out:
                 out.append(target)
         return out
@@ -113,7 +144,7 @@ class Context:
     # -- data -------------------------------------------------------------
 
     def item(self, item_id: str) -> dict:
-        return self.units.items[item_id]
+        return self.units.row(item_id)
 
     def update_item(self, item_id: str, **fields) -> None:
         """Denormalize stage output onto the item row (and the in-memory
@@ -122,6 +153,8 @@ class Context:
         self.db.execute(f"UPDATE item SET {cols} WHERE id=?",
                         (*fields.values(), item_id))
         self.units.items[item_id].update(fields)
+        if "cluster_id" in fields:
+            self.units.set_cluster(item_id, fields["cluster_id"])
 
     def package(self, source: str) -> dict | None:
         row = self.db.one("SELECT * FROM package WHERE source=?", (source,))

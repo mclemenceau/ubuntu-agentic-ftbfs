@@ -14,8 +14,11 @@ from ..prompts import load
 
 CATEGORIES = ["compile", "link", "test", "packaging", "deps", "toolchain",
               "arch", "infra"]
-ACTIONS = ["sync", "merge", "patch", "retry", "wait-dependency",
-           "restrict-arch", "report-upstream", "investigate"]
+# sync/merge are per-package facts, decided deterministically (all
+# packages fixed/newer in Debian); the LLM judges the failure pattern.
+LLM_ACTIONS = ["patch", "retry", "wait-dependency", "restrict-arch",
+               "report-upstream", "investigate"]
+ACTIONS = ["sync", "merge", *LLM_ACTIONS]
 VERDICT = {
     "type": "object",
     "required": ["id", "category", "summary", "root_cause_guess", "obvious",
@@ -27,7 +30,7 @@ VERDICT = {
         "root_cause_guess": {"type": ["string", "null"]},
         "obvious": {"type": "boolean"},
         "fixable": {"type": "string", "enum": ["yes", "no", "maybe"]},
-        "action": {"type": "string", "enum": ACTIONS},
+        "action": {"type": "string", "enum": LLM_ACTIONS},
         "confidence": {"type": "number"},
     },
     "additionalProperties": False,
@@ -73,7 +76,7 @@ class TriageStage(Stage):
     name = "triage"
     kind = Kind.AGENT
     unit = UnitType.CLUSTER
-    version = "1"
+    version = "2"
     batch_size = 12
     description = "First verdict per cluster: category, fixable, action"
 
