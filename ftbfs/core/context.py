@@ -7,6 +7,7 @@ action is traced (events, prompts, transcripts, cost ledger).
 from __future__ import annotations
 
 import json
+import re
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -140,6 +141,16 @@ class Context:
             return None
         return {**json.loads(row["data"]), "status": row["status"]}
 
+    def result(self, unit_id: str, stage: str) -> dict | None:
+        """Latest result of `stage` for exactly this unit id (any unit
+        type), as {**data, "status": ...}; None when absent."""
+        from .scheduler import latest_result
+
+        row = latest_result(self.db, unit_id, stage)
+        if row is None:
+            return None
+        return {**json.loads(row["data"]), "status": row["status"]}
+
     def feedback(self, unit_id: str) -> list[dict]:
         """Loop-back payloads sent to this stage for this unit, oldest
         first (e.g. review findings, verify failure excerpt)."""
@@ -161,7 +172,8 @@ class Context:
         elif unit == UnitType.PACKAGE:
             base = self.paths.work / unit_id / "_package"
         else:
-            base = self.paths.work / "_clusters" / unit_id
+            safe = re.sub(r"[^\w.:+-]", "_", unit_id)
+            base = self.paths.work / "_clusters" / safe
         path = base / self.spec.name
         path.mkdir(parents=True, exist_ok=True)
         return path
@@ -182,7 +194,8 @@ class Context:
                   output_schema: dict | None = None,
                   max_turns: int | None = None,
                   cwd: Path | None = None,
-                  attempt_dir: Path | None = None) -> AgentResult:
+                  attempt_dir: Path | None = None,
+                  system: str | None = None) -> AgentResult:
         """Run the stage's configured agent. With several unit ids (a
         packed batch) the cost is split evenly between them."""
         spec = self.spec.agent
@@ -197,7 +210,7 @@ class Context:
             tier = spec.escalate_tier
         adir = attempt_dir or self.attempt_dir(uids[0])
         full_prompt = prompt
-        if output_schema:
+        if output_schema and not backend.native_schema:
             full_prompt += backend.schema_instructions(output_schema)
         req = AgentRequest(
             prompt=full_prompt,
@@ -207,6 +220,10 @@ class Context:
             tool_policy=tool_policy or ToolPolicy.none(),
             max_turns=max_turns or spec.max_turns or 1,
             output_schema=output_schema,
+            timeout=spec.timeout,
+            system=system,
+            max_budget_usd=spec.max_budget_usd,
+            effort=spec.effort,
         )
         self.event("agent_call_start", unit=uids[0], units=uids,
                    backend=backend.name, model=backend.model_for(tier),
@@ -220,7 +237,13 @@ class Context:
         if result.ok and output_schema is not None:
             errors = (validate(result.data, output_schema)
                       if result.data is not None else ["no JSON found"])
-            if errors:
+            if errors and backend.native_schema:
+                # The backend already enforced the schema; a mismatch
+                # here means a degenerate answer. Fail (and retry later)
+                # rather than "repairing" it with a smaller model.
+                result.ok = False
+                result.error = f"schema validation failed: {errors}"
+            elif errors:
                 result = self._repair(backend, req, result, errors)
         with self._lock:
             for u in uids:
@@ -255,6 +278,8 @@ class Context:
         fixed = backend.run(AgentRequest(
             prompt=prompt, cwd=req.cwd, attempt_dir=repair_dir,
             tier="small", output_schema=req.output_schema,
+            system=req.system or "Reply with JSON only.",
+            timeout=req.timeout,
         ))
         fixed.usage.input_tokens += bad.usage.input_tokens
         fixed.usage.output_tokens += bad.usage.output_tokens

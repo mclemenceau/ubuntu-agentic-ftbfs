@@ -24,3 +24,14 @@ after = ["excerpt"]
 
 # Package-level Debian/upstream facts; independent of the log stages.
 [stage.facts]
+
+# First verdict per cluster; facts-decidable clusters skip the LLM.
+[stage.triage]
+after = ["classify", "facts"]
+agent = { tier = "small", max_budget_usd = 0.5 }
+
+# Root cause + fix strategy, once per cluster worth fixing in Ubuntu.
+[stage.diagnose]
+after = ["triage"]
+when = "triage.fixable != 'no' and triage.action in ['patch', 'investigate', 'report-upstream', 'restrict-arch']"
+agent = { tier = "medium", effort = "medium", max_budget_usd = 1.0 }

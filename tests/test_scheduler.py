@@ -329,3 +329,12 @@ def test_stage_status_wins_over_data_status(db, units, tmp_path):
     assert s.run()["b"] == {"ok": 5}
     row = db.one("SELECT data FROM stage_result WHERE stage='b'")
     assert json.loads(row["data"])["seen"] == "ok"
+
+
+def test_new_optional_agent_field_keeps_cache(db, units, tmp_path):
+    from ftbfs.core.pipeline import AgentSpec
+    from ftbfs.core.scheduler import _non_default
+
+    assert _non_default(AgentSpec(backend="claude")) == {"backend": "claude"}
+    assert _non_default(AgentSpec(backend="claude", effort="low")) == {
+        "backend": "claude", "effort": "low"}

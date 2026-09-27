@@ -37,6 +37,9 @@ class AgentSpec:
     max_turns: int | None = None
     escalate_after_loops: int | None = None
     escalate_tier: str = "large"
+    max_budget_usd: float | None = None
+    timeout: int = 900
+    effort: str | None = None
 
 
 @dataclass

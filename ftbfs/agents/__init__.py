@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from .base import AgentBackend
+from .claude import ClaudeBackend
 from .fake import FakeBackend
 
 BACKENDS: dict[str, type[AgentBackend]] = {
+    ClaudeBackend.name: ClaudeBackend,
     FakeBackend.name: FakeBackend,
 }
 

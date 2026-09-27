@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import random
 from dataclasses import asdict, dataclass, field, fields
 
 from .db import DB
@@ -33,6 +34,10 @@ class Filter:
     skip_lp_bug: bool = True
     include_gone: bool = False
     limit: int | None = None
+    # Random whole clusters (all their selected items); for evaluating
+    # cluster-level stages on a representative sample.
+    sample_clusters: int | None = None
+    seed: int = 0
 
     @classmethod
     def from_dict(cls, d: dict) -> Filter:
@@ -92,4 +97,9 @@ def all_items(db: DB, where: str = "", params=()) -> list:
 
 def select(db: DB, flt: Filter) -> list:
     rows = [r for r in all_items(db) if not flt.explain(r)]
+    if flt.sample_clusters:
+        clusters = sorted({r["cluster_id"] for r in rows if r["cluster_id"]})
+        n = min(flt.sample_clusters, len(clusters))
+        keep = set(random.Random(flt.seed).sample(clusters, n))
+        rows = [r for r in rows if r["cluster_id"] in keep]
     return rows[: flt.limit] if flt.limit else rows

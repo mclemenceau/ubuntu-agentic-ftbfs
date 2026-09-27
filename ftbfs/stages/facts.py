@@ -30,10 +30,14 @@ class FactsStage(Stage):
                   "status, upstream forge"
 
     def _failing(self, ctx, source: str) -> dict[str, list[str]]:
+        """All currently failing builds of the source, independent of the
+        run's selection (so sampling never invalidates cached facts)."""
         failing: dict[str, list[str]] = {}
-        for iid in ctx.units.children(UnitType.PACKAGE, source):
-            item = ctx.item(iid)
-            failing.setdefault(item["version"], []).append(item["arch"])
+        for row in ctx.db.query(
+            "SELECT version, arch FROM item WHERE source=? AND"
+            " state='FAILEDTOBUILD' AND lifecycle != 'gone'", (source,)
+        ):
+            failing.setdefault(row["version"], []).append(row["arch"])
         return {v: sorted(a) for v, a in failing.items()}
 
     def inputs(self, ctx, unit_id):

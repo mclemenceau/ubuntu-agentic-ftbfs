@@ -13,6 +13,7 @@ uv run ftbfs list --by arch          # what the default filter selects
 uv run ftbfs run                     # run the pipeline on the selection
 uv run ftbfs clusters                # failure clusters, rule hit rate
 uv run ftbfs signals -v              # Debian/upstream facts per package
+uv run ftbfs verdicts                # triage + diagnosis per cluster
 uv run ftbfs status                  # runs, per-stage counts, gates, cost
 ```
 
@@ -100,6 +101,31 @@ always get a manual gate.
 Stages ask for a tier (`small|medium|large`). `config.toml` maps tiers to
 models per backend (`[backend.<name>.tiers]`). Backends implement
 `ftbfs.agents.base.AgentBackend`.
+
+The `claude` backend runs `claude -p`, isolated from your interactive
+setup: no CLAUDE.md, settings, MCP servers, skills or session files. The
+stage supplies its own system prompt, so a tool-less call costs about 400
+input tokens of overhead instead of about 23k. Output is enforced with
+`--json-schema` and re-validated. Per stage, `agent = {...}` in
+`pipeline.toml` can set:
+- `tier`
+- `effort` (low to max): thinking tokens dominate output cost
+- `max_budget_usd`
+- `timeout`
+
+## LLM stages
+
+- `triage` (cluster, small tier, ~12 clusters packed per call): category,
+  summary, obvious, fixable and action. Clusters the facts already decide
+  get no LLM call: blocked dependencies, or every package fixed or newer
+  and building in Debian.
+- `diagnose` (cluster, medium tier, medium effort): root cause, evidence,
+  fix kind and strategy, patch outline, risk. It runs only for
+  patch/investigate-type verdicts.
+
+Prompts live in `prompts/*.md`; editing one re-runs only that stage and
+what follows it. `--sample-clusters N --seed S` selects random whole
+clusters, for trying prompt or model changes cheaply.
 
 ## Failure rules
 

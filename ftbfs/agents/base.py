@@ -46,6 +46,13 @@ class AgentRequest:
     max_turns: int = 1
     output_schema: dict | None = None  # JSON schema for the final answer
     timeout: int = 600
+    # Replaces the backend's default (large, agentic) system prompt. Lean
+    # prompts cut fixed overhead per call by ~20x for tool-less stages.
+    system: str | None = None
+    max_budget_usd: float | None = None  # hard stop for runaway sessions
+    # Reasoning effort (low|medium|high|...): thinking tokens are most of
+    # the output cost; backends without such a knob ignore it.
+    effort: str | None = None
 
 
 @dataclass
@@ -79,6 +86,9 @@ class PolicyNotSupported(RuntimeError):
 
 class AgentBackend(ABC):
     name: str
+    # True when the backend enforces output_schema itself; otherwise the
+    # schema is spelled out in the prompt and validated afterwards.
+    native_schema: bool = False
 
     def __init__(self, tiers: dict[str, str] | None = None, **options):
         self.tiers = tiers or {}
@@ -162,6 +172,13 @@ def _validate(data, schema, path, errors):
             return
     if "enum" in schema and data not in schema["enum"]:
         errors.append(f"{path}: {data!r} not in {schema['enum']}")
+    if isinstance(data, str | list):
+        lo, hi = ("minLength", "maxLength") if isinstance(data, str) \
+            else ("minItems", "maxItems")
+        if lo in schema and len(data) < schema[lo]:
+            errors.append(f"{path}: shorter than {schema[lo]}")
+        if hi in schema and len(data) > schema[hi]:
+            errors.append(f"{path}: longer than {schema[hi]}")
     if isinstance(data, dict):
         for key in schema.get("required", []):
             if key not in data:

@@ -32,13 +32,17 @@ def _filter_args(p: argparse.ArgumentParser) -> None:
     g.add_argument("--all-components", action="store_true")
     g.add_argument("--all-states", action="store_true")
     g.add_argument("--limit", type=int)
+    g.add_argument("--sample-clusters", type=int,
+                   help="random whole clusters (all their items)")
+    g.add_argument("--seed", type=int)
 
 
 def _filter(app: App, a: argparse.Namespace):
     overrides = {
         k: getattr(a, k)
         for k in ("components", "states", "arches", "pockets",
-                  "packagesets", "teams", "sources", "limit")
+                  "packagesets", "teams", "sources", "limit",
+                  "sample_clusters", "seed")
     }
     if a.all_components:
         overrides["components"] = []
@@ -154,6 +158,50 @@ def cmd_signals(app: App, a) -> None:
                 else ""
             print(f"  {f['source']:28} {f['ubuntu']['newest_failing']:24}"
                   f" debian {f['debian']['newest'] or '-':20}{bug}")
+
+
+def cmd_verdicts(app: App, a) -> None:
+    """Triage and diagnosis per cluster of the selection."""
+    rows = app.select(_filter(app, a))
+    clusters: dict[str, list] = {}
+    for r in rows:
+        if r["cluster_id"]:
+            clusters.setdefault(r["cluster_id"], []).append(r)
+
+    def latest(uid, stage):
+        row = app.db.one(
+            "SELECT status, data, cost, model FROM stage_result WHERE"
+            " unit_id=? AND stage=? ORDER BY id DESC LIMIT 1", (uid, stage))
+        return row
+
+    actions: Counter = Counter()
+    cost = 0.0
+    for cid, members in sorted(clusters.items(), key=lambda kv: -len(kv[1])):
+        t = latest(cid, "triage")
+        if t is None:
+            continue
+        tv = json.loads(t["data"])
+        cost += t["cost"] or 0
+        actions[tv.get("action", t["status"])] += 1
+        pkgs = sorted({m["source"] for m in members})
+        if a.action and tv.get("action") not in a.action:
+            continue
+        print(f"{cid}  ({len(members)} items, {len(pkgs)} pkgs:"
+              f" {', '.join(pkgs[:4])}{' ...' if len(pkgs) > 4 else ''})")
+        print(f"  triage   [{tv.get('decided_by', '?')}] {tv.get('action')}"
+              f" fixable={tv.get('fixable')} obvious={tv.get('obvious')}"
+              f" conf={tv.get('confidence')}  {tv.get('summary', '')}")
+        d = latest(cid, "diagnose")
+        if d is not None and d["status"] == "ok":
+            dv = json.loads(d["data"])
+            cost += d["cost"] or 0
+            print(f"  diagnose {dv['fix_kind']} risk={dv['risk']}"
+                  f" conf={dv['confidence']}  {dv['root_cause'][:300]}")
+            print(f"           fix: {dv['fix_strategy'][:300]}")
+        print()
+    print("actions: " + ", ".join(f"{k}={v}" for k, v in
+                                  actions.most_common()))
+    print(f"recorded LLM cost for these clusters: ${cost:.3f}")
 
 
 def cmd_stages(app: App, a) -> None:
@@ -382,6 +430,11 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("-v", "--verbose", action="store_true",
                    help="list packages for every signal")
     s.set_defaults(func=cmd_signals)
+
+    s = sub.add_parser("verdicts", help="triage/diagnosis per cluster")
+    _filter_args(s)
+    s.add_argument("--action", action="append")
+    s.set_defaults(func=cmd_verdicts)
 
     s = sub.add_parser("stages", help="registered stages and pipeline")
     s.set_defaults(func=cmd_stages)

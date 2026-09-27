@@ -25,7 +25,7 @@ import json
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import asdict, dataclass
+from dataclasses import MISSING, dataclass, fields
 
 from ..agents.base import AgentBackend
 from ..db import DB, now
@@ -135,7 +135,7 @@ class Scheduler:
         blob = {
             "stage_version": spec.stage.version,
             "options": spec.options,
-            "agent": asdict(spec.agent) if spec.agent else None,
+            "agent": _non_default(spec.agent),
             "unit": self._unit_data(spec, uid),
             "deps": {
                 name: None if d is None else _stable_hash(
@@ -366,6 +366,22 @@ class Scheduler:
             )
         self.db.event("gate_wait", run_id=self.run_id, unit=uid,
                       stage=spec.name)
+
+
+def _non_default(obj) -> dict | None:
+    """Dataclass fields that differ from their defaults: adding a new
+    optional field to a spec must not invalidate every cached result."""
+    if obj is None:
+        return None
+    out = {}
+    for f in fields(obj):
+        default = (f.default if f.default is not MISSING
+                   else f.default_factory() if f.default_factory
+                   is not MISSING else MISSING)
+        value = getattr(obj, f.name)
+        if value != default:
+            out[f.name] = value
+    return out
 
 
 def _stable_hash(obj) -> str:
