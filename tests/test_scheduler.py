@@ -253,15 +253,18 @@ def test_agent_batch_ledger_repair_and_artifacts(db, units, tmp_path):
     triage.run = run
     backend = FakeBackend(responder=responder)
     s = sched(db, units, tmp_path, [triage],
-              {"triage": {"agent": {"tier": "small"}}}, backend=backend)
+              {"triage": {"agent": {"tier": "medium"}}}, backend=backend)
     assert s.run()["triage"] == {"ok": 5}
     assert len(backend.calls) == 3  # 2 batches + 1 repair
+    # The repair stays on the stage's tier, so the model credited with
+    # the answer is the one that wrote its content.
+    assert [c.tier for c in backend.calls] == ["medium"] * 3
 
     rows = db.query("SELECT * FROM stage_result WHERE stage='triage'")
     fixable = sorted(json.loads(r["data"])["fixable"] for r in rows)
     assert fixable == ["no", "no", "yes", "yes", "yes"]
     for r in rows:
-        assert r["backend"] == "fake" and r["model"] == "fake-s"
+        assert r["backend"] == "fake" and r["model"] == "fake-m"
         assert json.loads(r["usage"])["input_tokens"] > 0
 
     first = sorted(units.items)[0]

@@ -301,16 +301,18 @@ class Context:
 
     def _repair(self, backend: AgentBackend, req: AgentRequest,
                 bad: AgentResult, errors: list[str]) -> AgentResult:
-        """One cheap retry: show the answer and the schema errors."""
+        """One retry that shows the answer and the schema errors. It runs
+        on the same tier: a smaller model would be rewriting, and then be
+        credited with, the content of a bigger model's answer."""
         repair_dir = req.attempt_dir / "repair"
         prompt = (
             "Your previous answer did not match the required JSON schema."
-            f"\nErrors: {errors}\nPrevious answer:\n{bad.text[:4000]}"
+            f"\nErrors: {errors}\nPrevious answer:\n{bad.text}"
             + backend.schema_instructions(req.output_schema)
         )
         fixed = backend.run(AgentRequest(
             prompt=prompt, cwd=req.cwd, attempt_dir=repair_dir,
-            tier="small", output_schema=req.output_schema,
+            tier=req.tier, output_schema=req.output_schema,
             system=req.system or "Reply with JSON only.",
             timeout=req.timeout,
         ))

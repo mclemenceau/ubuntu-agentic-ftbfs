@@ -121,7 +121,9 @@ class AgentBackend(ABC):
 
     @staticmethod
     def extract_json(text: str) -> Any | None:
-        """Parse a JSON answer, tolerating a surrounding code fence."""
+        """Parse a JSON answer, tolerating what models commonly add: a
+        surrounding code fence, trailing text, raw newlines inside
+        strings and a trailing comma before a closing bracket."""
         text = text.strip()
         m = re.search(r"```(?:json)?\s*(.*?)```", text, re.S)
         if m:
@@ -132,13 +134,47 @@ class AgentBackend(ABC):
         )
         if start < 0:
             return None
-        try:
-            return json.loads(text[start:])
-        except json.JSONDecodeError:
+        decoder = json.JSONDecoder(strict=False)
+        for candidate in (text[start:], _strip_trailing_commas(text[start:])):
             try:
-                return json.JSONDecoder().raw_decode(text[start:])[0]
+                return decoder.raw_decode(candidate)[0]
             except json.JSONDecodeError:
-                return None
+                pass
+        return None
+
+
+def _strip_trailing_commas(text: str) -> str:
+    """Drop commas that directly precede a closing bracket, outside
+    string literals."""
+    out: list[str] = []
+    pending = ""  # a comma plus the whitespace after it, not yet emitted
+    in_string = escaped = False
+    for ch in text:
+        if in_string:
+            out.append(ch)
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if pending:
+            if ch.isspace():
+                pending += ch
+                continue
+            if ch in "}]":
+                pending = pending[1:]
+            out.append(pending)
+            pending = ""
+        if ch == ",":
+            pending = ch
+            continue
+        if ch == '"':
+            in_string = True
+        out.append(ch)
+    out.append(pending)
+    return "".join(out)
 
 
 def validate(data: Any, schema: dict) -> list[str]:

@@ -28,8 +28,11 @@ def _list(n: int, lo: int, hi: int) -> dict:
 
 
 # Short enum/boolean fields first: a verbose answer must not crowd them
-# out. Length bounds keep output tokens (the main cost) in check and
-# reject placeholder answers.
+# out. The prompt asks for tighter lengths (the output tokens are the
+# main cost); these hard bounds leave headroom above them, since models
+# overshoot a length target by a few tens of percent and a useful
+# answer should not fail for that. Evidence lines are verbatim log
+# lines, which can be as short as "FAIL".
 SCHEMA = {
     "type": "object",
     "required": ["fix_kind", "risk", "confidence", "needs_source",
@@ -41,11 +44,11 @@ SCHEMA = {
         "confidence": {"type": "number"},
         "needs_source": {"type": "boolean"},
         "applies_to_all_members": {"type": "boolean"},
-        "root_cause": _text(40, 700),
-        "evidence": _list(4, 5, 300),
-        "fix_strategy": _text(30, 700),
-        "patch_outline": _list(6, 10, 200),
-        "upstream": _text(5, 300),
+        "root_cause": _text(40, 1000),
+        "evidence": _list(6, 2, 400),
+        "fix_strategy": _text(30, 1000),
+        "patch_outline": _list(8, 10, 300),
+        "upstream": _text(5, 500),
     },
     "additionalProperties": False,
 }

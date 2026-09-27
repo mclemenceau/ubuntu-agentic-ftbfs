@@ -134,9 +134,11 @@ gpg-agent kept timing out.
   - dev and verify on hexcurse: the same fix as claude's, verified by
     sbuild, $0.053, 7 steps.
   - Sonnet's `medium` variant did not think where claude's `--effort
-    medium` did (1k vs 4k output tokens). Watch diagnosis depth in the
-    A/B.
-- Next: A/B on the 30-cluster sample, then the first full run.
+    medium` did (1k vs 4k output tokens).
+- A/B on the 30-cluster sample (10a65e8): triage matches claude about
+  as well as claude matches itself, at 40% of the cost. Diagnose at the
+  `high` variant matches claude's depth at about half its cost, so
+  diagnose now runs at `effort = "high"`.
 
 ## Milestone 7: web app and reports
 
@@ -191,12 +193,48 @@ gpg-agent kept timing out.
    from the UI (retry exists, with the configured agent only); no
    authentication (loopback only, by design).
 
+## Plan after the first full run (run 22, 2026-09-27)
+
+Run 22 took the whole selection through diagnose on opencode:
+- triage: 410 clusters, $1.18
+- diagnose: 283 clusters, $7.80 (the estimate was $15 for both)
+- triage verdicts: 158 patch/yes (115 obvious), 35 sync, 6 merge,
+  32 wait-dependency/no
+- ready for reproduce on amd64: 108 packages with a patch verdict (69
+  low risk, 39 medium), plus 27 investigate and 9 report-upstream
+
+Steps, in order:
+1. **Fix the diagnose schema repair, then retry the affected clusters.**
+   51 diagnoses (18%) failed validation. Haiku rewrote them from a
+   truncated copy, and they were recorded as Haiku's. The causes are
+   mechanical: trailing commas or raw newlines in the JSON (13), fields
+   slightly over their length caps (about 35), and one legitimate
+   4-character evidence line. Parse leniently, give the caps headroom,
+   and repair on the same tier.
+   **Done (run 23):** all 51 saved answers now pass without a repair;
+   the 45 affected clusters were retried, all ok on Sonnet, 0 repairs,
+   $1.41.
+2. **Spot-check diagnosis quality** before building. The A/B covered
+   30 clusters; this is the first run at scale. Read about 15
+   diagnoses from the weak buckets
+   (`disable-or-skip-test` at 0.49 to 0.58, `unknown` at 0.36,
+   medium-risk `code-patch` at 0.64). If they are shallow, re-run those
+   buckets on the claude backend and compare.
+3. **Zero-token wins:** list the 35 sync and 6 merge clusters, already
+   decided by the Debian facts.
+4. **Reproduce the 69 low-risk patch packages** (local sbuild, free).
+   Decide then whether to drop the manual gate on local reproduce.
+5. **Dev + verify on a batch of 15 to 20.** Measure the fix rate and
+   cost per verified fix before going wider. Build the M8
+   `adversarial_review` stage before trusting dozens of debdiffs
+   (see open issue 1).
+
 ## Next milestone
 
 - **M8:** extensibility proof:
   - `adversarial_review` stage (on_fail goes to dev), config only
-  - opencode backend: done; triage/diagnose A/B against claude on the
-    30-cluster sample still to run
+  - opencode backend: done, including the triage/diagnose A/B
+    against claude on the 30-cluster sample
   - `lp_file_bug` in dry-run
 
 ## How to resume
