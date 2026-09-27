@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import dot %}
+{% from "_macros.html" import dot, signal %}
 {% block title %}Items{% endblock %}
 {% block main %}
 <h1>Items</h1>
@@ -7,6 +7,7 @@
   <label>source (glob)<input name="source" value="{{ args.source }}" placeholder="python-*"></label>
   <label>arch<input name="arch" value="{{ args.arch }}" size="8"></label>
   <label>class<input name="klass" value="{{ args.klass }}" size="16"></label>
+  <label>signal<select name="signal"><option value=""></option>{% for s in signal_help %}<option {% if s == args.signal %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></label>
   <label>stage<select name="stage"><option value=""></option>{% for s in stages %}<option {% if s == args.stage %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></label>
   <label>status<select name="status">{% for st in ('', 'ok', 'fail', 'skip', 'needs_human', 'error', 'pending', 'gate', 'none') %}<option value="{{ st }}" {% if st == args.status %}selected{% endif %}>{{ st or 'any result' }}</option>{% endfor %}</select></label>
   <label>profile<select name="profile"><option value="">config default</option>{% for p in profiles %}<option {% if p == args.profile %}selected{% endif %}>{{ p }}</option>{% endfor %}</select></label>
@@ -15,13 +16,14 @@
 </form>
 <p class="muted small">{{ total }} items{% if total > rows|length %}, showing {{ rows|length }}{% endif %}. Dots: {% for s in stages %}{{ s }}{% if not loop.last %} &rsaquo; {% endif %}{% endfor %}.</p>
 <table>
-<tr><th>Item</th><th>State</th><th>Class</th><th>Cluster</th><th>Pipeline</th></tr>
+<tr><th>Item</th><th>State</th><th>Class</th><th>Cluster</th><th>Signals</th><th>Pipeline</th></tr>
 {% for r in rows %}
 <tr>
   <td class="mono"><a href="/pkg/{{ r.source|urlq }}/{{ r.version|urlq }}">{{ r.source }}</a> <span class="muted">{{ r.version }}</span> {{ r.arch }}</td>
   <td class="small">{{ r.state }}{% if r.lifecycle != 'active' %} <span class="badge {{ 'pending' if r.lifecycle == 'new' else 'skip' }}">{{ r.lifecycle }}</span>{% endif %}</td>
   <td class="small">{{ r['class'] or '-' }}</td>
   <td class="small mono">{% if r.cluster_id %}<a href="/cluster?id={{ r.cluster_id|urlq }}">{{ r.cluster_id|truncate(40) }}</a>{% endif %}</td>
+  <td>{% for s in facts.get(r.source, {}).get('signals', []) %}{{ signal(s) }} {% endfor %}</td>
   <td>{% for s in stages %}{{ dot(matrix[r.id].get(s), s) }} {% endfor %}</td>
 </tr>
 {% endfor %}

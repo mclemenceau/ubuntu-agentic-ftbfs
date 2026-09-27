@@ -1,18 +1,8 @@
 """Turn raw Ubuntu/Debian data for one source package into facts and
 signals. Pure function: no I/O, easy to test.
 
-Signals (deterministic answers before any LLM runs):
-  not-in-debian            source not in Debian unstable/experimental
-  sync-candidate           Debian unstable is newer; no Ubuntu delta
-  merge-candidate          Debian unstable is newer; Ubuntu delta
-  newer-in-experimental    only Debian experimental is newer
-  fixed-in-debian          a Debian FTBFS bug is fixed in a version newer
-                           than the failing Ubuntu one
-  debian-ftbfs-open        open FTBFS bug(s) in Debian
-  debian-patch             an open Debian FTBFS bug carries a patch
-  ftbfs-in-debian-testing  reproducible-builds sees FTBFS in testing on a
-                           failing arch
-  builds-in-debian-testing testing builds fine on a failing arch
+Signals are deterministic answers before any LLM runs; SIGNALS
+describes each one.
 """
 
 from __future__ import annotations
@@ -35,6 +25,20 @@ FORGES = {
 }
 # Arch names differ: Ubuntu amd64v3 builds are checked against amd64.
 REPRO_ARCH = {"amd64v3": "amd64"}
+
+SIGNALS = {
+    "not-in-debian": "source not in Debian unstable/experimental",
+    "sync-candidate": "Debian unstable is newer; no Ubuntu delta",
+    "merge-candidate": "Debian unstable is newer; Ubuntu delta",
+    "newer-in-experimental": "only Debian experimental is newer",
+    "fixed-in-debian": "a Debian FTBFS bug is fixed in a version newer"
+                       " than the failing Ubuntu one",
+    "debian-ftbfs-open": "open FTBFS bug(s) in Debian",
+    "debian-patch": "an open Debian FTBFS bug carries a patch",
+    "ftbfs-in-debian-testing": "reproducible-builds sees FTBFS in testing"
+                               " on a failing arch",
+    "builds-in-debian-testing": "testing builds fine on a failing arch",
+}
 
 
 def forge(url: str | None) -> tuple[str | None, str | None]:

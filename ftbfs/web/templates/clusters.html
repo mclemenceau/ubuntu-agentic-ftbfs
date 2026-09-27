@@ -1,21 +1,24 @@
 {% extends "base.html" %}
+{% from "_macros.html" import signal %}
 {% block title %}Clusters{% endblock %}
 {% block main %}
 <h1>Clusters</h1>
 <form class="filters" method="get">
   <label>min items<input name="min_size" value="{{ args.min_size }}" size="4"></label>
   <label>triage action<input name="action" value="{{ args.action }}" size="14" placeholder="patch"></label>
+  <label>signal<select name="signal"><option value=""></option>{% for s in signal_help %}<option {% if s == args.signal %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></label>
   <button>filter</button>
 </form>
 <p class="muted small">{{ rows|length }} clusters of active items.</p>
 <table>
-<tr><th>Cluster</th><th class="num">Items</th><th class="num">Pkgs</th><th>Triage</th><th>Diagnosis</th><th>Packages</th></tr>
+<tr><th>Cluster</th><th class="num">Items</th><th class="num">Pkgs</th><th>Triage</th><th>Diagnosis</th><th>Signals</th><th>Packages</th></tr>
 {% for c in rows %}
 <tr>
   <td class="mono"><a href="/cluster?id={{ c.cluster_id|urlq }}">{{ c.cluster_id|truncate(50) }}</a><div class="small muted">{{ c['class'] }} / {{ c.family or '-' }}</div></td>
   <td class="num">{{ c['items'] }}</td><td class="num">{{ c.packages }}</td>
   <td class="small">{% if c.triage %}<b>{{ c.triage.action or c.triage.status }}</b> {{ c.triage.summary|default('', true)|truncate(90) }}{% endif %}</td>
   <td class="small">{% if c.diagnose %}{{ c.diagnose.fix_kind or c.diagnose.status }}{% if c.diagnose.risk %}, risk {{ c.diagnose.risk }}{% endif %}{% endif %}</td>
+  <td>{% for s, n in c.signals.items() %}{{ signal(s, n if c.packages > 1 else none) }} {% endfor %}</td>
   <td class="small">{{ c.sources.split(',')[:5]|join(', ') }}{% if c.packages > 5 %} ...{% endif %}</td>
 </tr>
 {% endfor %}

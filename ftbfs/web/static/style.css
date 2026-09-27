@@ -107,3 +107,6 @@ details > summary { cursor: pointer; margin: 6px 0; }
 @media (max-width: 1000px) { .cols { grid-template-columns: 1fr; } }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .small { font-size: 12px; }
+a.badge.sig { color: var(--accent); text-decoration: none; margin: 1px 0; }
+a.badge.sig:hover { background: var(--line); }
+tr.selected td { background: var(--code); }

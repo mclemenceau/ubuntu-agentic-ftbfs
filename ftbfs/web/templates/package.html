@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import status, dot, file_link, unit_link %}
+{% from "_macros.html" import status, dot, file_link, unit_link, signal %}
 {% block title %}{{ inv.source }} {{ inv.version }}{% endblock %}
 {% block main %}
 <h1>{{ inv.source }} <span class="muted">{{ inv.version }}</span></h1>
@@ -9,6 +9,7 @@
   <a href="/pkg/{{ inv.source|urlq }}/{{ inv.version|urlq }}/investigation.md">investigation.md</a>
   &middot; <a href="/items?source={{ inv.source|urlq }}&everything=1">items</a>
 </div>
+{% if facts %}<div class="chips">{% for s in facts.signals %}{{ signal(s) }}{% else %}<span class="muted">no signals</span>{% endfor %}</div>{% endif %}
 <div class="cols">
 <div>
   <div class="report">{{ report|markdown }}</div>

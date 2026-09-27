@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from ftbfs.app import App
 from ftbfs.db import now
+from ftbfs.facts.derive import derive
 from ftbfs.ingest import parse, read_html
 from ftbfs.inventory import save_snapshot, store
 from ftbfs.web import queries as q
@@ -59,6 +60,13 @@ def project(tmp_path_factory):
         "evidence": ["e1"], "fix_strategy": "fix it",
         "patch_outline": ["step"], "upstream": "none",
         "applies_to_all_members": True}, utype="cluster", cost=0.05)
+    facts = derive(src, {ver: ["amd64"]}, None, {"version": "99.0-1"},
+                   None, None, [{"id": 1234, "title": "FTBFS: boom",
+                                 "done": False, "patch": True,
+                                 "severity": "serious", "status": "open",
+                                 "url": "https://bugs.debian.org/1234"}])
+    facts["upstream"]["homepage"] = "javascript:alert(1)"
+    result(app, src, "facts", "ok", facts, utype="package")
     debdiff = root / "fix.debdiff"
     debdiff.write_text("+fixed line\n")
     result(app, iid, "dev", "ok", {
@@ -120,7 +128,7 @@ def test_pages_render(client, project):
                 f"/runs/{project['run_id']}/panel", "/items",
                 "/items?stage=verify&status=ok", f"/pkg/{src}/{ver}",
                 f"/pkg/{src}/{ver}/investigation.md", "/clusters",
-                "/cluster?id=c1", "/gates", "/attention", "/costs",
+                "/cluster?id=c1", "/signals", "/gates", "/attention", "/costs",
                 "/snapshots",
                 f"/console?dir={quote(str(project['adir']))}"]:
         r = client.get(url)
@@ -130,6 +138,21 @@ def test_pages_render(client, project):
     assert "<script>alert" not in page and "&lt;script&gt;" in page
     items = client.get("/items?stage=verify&status=ok&everything=1").text
     assert src in items
+
+
+def test_signals_visible(client, project):
+    src = project["src"]
+    page = client.get("/signals?signal=sync-candidate&everything=1").text
+    assert "Debian unstable is newer" in page
+    assert src in page and "#1234" in page and "99.0-1" in page
+    assert "javascript:" not in page  # only http(s) upstream links
+    assert src in client.get("/items?signal=debian-patch&everything=1").text
+    assert src not in client.get(
+        "/items?signal=not-in-debian&everything=1").text
+    assert "c1" in client.get("/clusters?signal=sync-candidate").text
+    assert "c1" not in client.get("/clusters?signal=not-in-debian").text
+    pkg = client.get(f"/pkg/{src}/{project['ver']}").text
+    assert "/signals?signal=debian-patch" in pkg
 
 
 def test_live_run_shows_agent_in_flight(project):

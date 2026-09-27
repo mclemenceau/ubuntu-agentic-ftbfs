@@ -208,6 +208,27 @@ def clusters(db: DB) -> list[dict]:
     return out
 
 
+# -- facts signals ------------------------------------------------------
+
+def facts(db: DB, sources: list[str] | None = None) -> dict[str, dict]:
+    """Latest ok facts per source package, optionally only these."""
+    rows = db.query(
+        "SELECT unit_id, data FROM stage_result WHERE id IN (SELECT MAX(id)"
+        " FROM stage_result WHERE stage='facts' AND status='ok'"
+        " GROUP BY unit_id)")
+    keep = set(sources) if sources is not None else None
+    return {r["unit_id"]: json.loads(r["data"]) for r in rows
+            if keep is None or r["unit_id"] in keep}
+
+
+def signal_counts(facts_by_source: dict[str, dict]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for f in facts_by_source.values():
+        for sig in f["signals"]:
+            counts[sig] = counts.get(sig, 0) + 1
+    return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+
+
 # -- gates and attention -------------------------------------------------
 
 def gates(db: DB, decision: str = "pending", limit: int = 500) -> list:

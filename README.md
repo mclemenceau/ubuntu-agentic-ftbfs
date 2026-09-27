@@ -67,6 +67,9 @@ can be restarted without disturbing a run. Pages:
   (prompt, transcript, debdiff, build log) and the event timeline
 - **Gates**: every stage waiting for approval, with triage/diagnosis
   context; **Attention**: errors, needs-human, exhausted loops
+- **Signals**: packages per facts signal with their Debian versions and
+  bugs; signal badges also show (and filter) on Items, Clusters and
+  Package pages
 - **Items**, **Clusters**, **Costs** (by stage/model, run and package),
   **Snapshots** (new, regressed, gone, state changes between any two)
 
@@ -184,7 +187,8 @@ any LLM runs:
 - `fixed-in-debian`, `debian-ftbfs-open`, `debian-patch`
 - `ftbfs-in-debian-testing`, `builds-in-debian-testing`
 
-`ftbfs signals --signal fixed-in-debian` lists the packages for a signal.
+`ftbfs signals --signal fixed-in-debian` lists the packages for a signal, as
+does the **Signals** page of the web UI.
 
 ## Development
 

@@ -35,6 +35,7 @@ from markupsafe import Markup
 from ..agents.base import running_pid
 from ..app import App
 from ..core.stage import UnitType
+from ..facts.derive import SIGNALS
 from ..report import Result, Section
 from . import queries as q
 from . import transcript
@@ -79,6 +80,7 @@ def create_app(root: Path, loopback_only: bool = True) -> FastAPI:
                            payload=q.payload, fromjson=json.loads)
     tpl.env.globals["unit_types"] = {
         s.name: str(s.stage.unit) for s in core.pipeline}
+    tpl.env.globals["signal_help"] = SIGNALS
 
     @web.middleware("http")
     async def guard(request: Request, call_next):
@@ -304,8 +306,8 @@ def create_app(root: Path, loopback_only: bool = True) -> FastAPI:
     @web.get("/items", response_class=HTMLResponse)
     def items(request: Request, source: str = "", arch: str = "",
               stage: str = "", status: str = "", klass: str = "",
-              profile: str = "", everything: bool = False,
-              limit: int = 500):
+              profile: str = "", signal: str = "",
+              everything: bool = False, limit: int = 500):
         overrides = {"sources": [source] if source else None,
                      "arches": [arch] if arch else None}
         if everything:
@@ -317,6 +319,10 @@ def create_app(root: Path, loopback_only: bool = True) -> FastAPI:
         rows = [dict(r) for r in core.select(flt)]
         if klass:
             rows = [r for r in rows if r["class"] == klass]
+        facts = q.facts(core.db, sorted({r["source"] for r in rows}))
+        if signal:
+            rows = [r for r in rows if signal in
+                    facts.get(r["source"], {}).get("signals", [])]
         matrix = _status_matrix(rows)
         if stage:
             # status "" = has any result; "none" = has none yet
@@ -326,11 +332,12 @@ def create_app(root: Path, loopback_only: bool = True) -> FastAPI:
 
             rows = [r for r in rows if keep(r)]
         return page(request, "items.html", rows=rows[:limit],
-                    total=len(rows), matrix=matrix,
+                    total=len(rows), matrix=matrix, facts=facts,
                     stages=list(core.pipeline.specs),
                     args={"source": source, "arch": arch, "stage": stage,
                           "status": status, "klass": klass,
-                          "profile": profile, "everything": everything},
+                          "profile": profile, "signal": signal,
+                          "everything": everything},
                     profiles=sorted(core.config.profiles))
 
     @web.get("/pkg/{source}", response_class=HTMLResponse)
@@ -380,6 +387,7 @@ def create_app(root: Path, loopback_only: bool = True) -> FastAPI:
         flt = core.config.make_filter()
         why = core.explain([i["id"] for i in inv.items], flt)
         return page(request, "package.html", inv=inv, report=report,
+                    facts=q.facts(core.db, [source]).get(source),
                     why=why, versions=core.reporter.versions(source),
                     attempts=_attempts(source, version),
                     events=q.timeline(core.db, source, version),
@@ -395,16 +403,45 @@ def create_app(root: Path, loopback_only: bool = True) -> FastAPI:
             raise HTTPException(404) from None
         return PlainTextResponse(text, media_type="text/markdown")
 
+    # -- signals ----------------------------------------------------------
+
+    @web.get("/signals", response_class=HTMLResponse)
+    def signals(request: Request, signal: str = "", profile: str = "",
+                everything: bool = False):
+        overrides = ({"components": [], "states": [], "skip_lp_bug": False}
+                     if everything else {})
+        try:
+            flt = core.config.make_filter(profile or None, **overrides)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+        sources = sorted({r["source"] for r in core.select(flt)})
+        facts = q.facts(core.db, sources)
+        pkgs = [f for s, f in sorted(facts.items())
+                if signal in f["signals"]] if signal else []
+        return page(request, "signals.html", facts=facts, pkgs=pkgs,
+                    counts=q.signal_counts(facts), selected=len(sources),
+                    args={"signal": signal, "profile": profile,
+                          "everything": everything},
+                    profiles=sorted(core.config.profiles))
+
     # -- clusters ---------------------------------------------------------
 
     @web.get("/clusters", response_class=HTMLResponse)
-    def clusters(request: Request, min_size: int = 1, action: str = ""):
+    def clusters(request: Request, min_size: int = 1, action: str = "",
+                 signal: str = ""):
         rows = [c for c in q.clusters(core.db) if c["items"] >= min_size]
         if action:
             rows = [c for c in rows
                     if (c["triage"] or {}).get("action") == action]
+        facts = q.facts(core.db)
+        for c in rows:
+            c["signals"] = q.signal_counts({
+                s: facts[s] for s in c["sources"].split(",") if s in facts})
+        if signal:
+            rows = [c for c in rows if signal in c["signals"]]
         return page(request, "clusters.html", rows=rows,
-                    args={"min_size": min_size, "action": action})
+                    args={"min_size": min_size, "action": action,
+                          "signal": signal})
 
     @web.get("/cluster", response_class=HTMLResponse)
     def cluster(request: Request, id: str):

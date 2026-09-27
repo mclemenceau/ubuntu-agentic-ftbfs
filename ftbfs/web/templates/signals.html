@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% from "_macros.html" import signal %}
+{% block title %}Signals{% endblock %}
+{% block main %}
+<h1>Signals{% if args.signal %} <span class="muted">{{ args.signal }}</span>{% endif %}</h1>
+<p class="muted small">Deterministic Debian and upstream facts per source
+package, known before any LLM runs. {{ facts|length }} of {{ selected }}
+selected packages have facts.</p>
+<form class="filters" method="get">
+  <input type="hidden" name="signal" value="{{ args.signal }}">
+  <label>profile<select name="profile"><option value="">config default</option>{% for p in profiles %}<option {% if p == args.profile %}selected{% endif %}>{{ p }}</option>{% endfor %}</select></label>
+  <label><span><input type="checkbox" name="everything" value="1" {% if args.everything %}checked{% endif %}> all components, states, bugged</span></label>
+  <button>filter</button>
+</form>
+{% set keep = ('&profile=' ~ args.profile|urlq if args.profile else '') ~ ('&everything=1' if args.everything else '') %}
+<table>
+<tr><th>Signal</th><th class="num">Packages</th><th>Meaning</th></tr>
+{% for name, n in counts.items() %}
+<tr{% if name == args.signal %} class="selected"{% endif %}>
+  <td><a href="/signals?signal={{ name|urlq }}{{ keep }}"><b>{{ name }}</b></a></td>
+  <td class="num">{{ n }}</td>
+  <td class="small">{{ signal_help.get(name, '') }}</td>
+</tr>
+{% else %}
+<tr><td colspan="3" class="muted">no facts yet; run <code>ftbfs run</code></td></tr>
+{% endfor %}
+</table>
+
+{% if args.signal %}
+<h2>{{ args.signal }} <span class="muted small">{{ pkgs|length }} packages &middot; <a href="/items?signal={{ args.signal|urlq }}{{ keep }}">items</a> &middot; <a href="/clusters?signal={{ args.signal|urlq }}">clusters</a></span></h2>
+<table>
+<tr><th>Package</th><th>Ubuntu</th><th>Debian</th><th>Debian bug</th><th>Upstream</th><th>Signals</th></tr>
+{% for f in pkgs %}
+{% set bugs = f.debian_bugs.open + f.debian_bugs.fixed_newer %}
+{% set up = f.upstream.repo or f.upstream.homepage %}
+<tr>
+  <td class="mono"><a href="/pkg/{{ f.source|urlq }}/{{ f.ubuntu.newest_failing|urlq }}">{{ f.source }}</a></td>
+  <td class="mono small">{{ f.ubuntu.newest_failing }}{% if f.ubuntu.delta %} <span class="muted">delta</span>{% endif %}</td>
+  <td class="mono small">{{ f.debian.unstable or '-' }}{% if f.debian.experimental %}<div class="muted">exp {{ f.debian.experimental }}</div>{% endif %}</td>
+  <td class="small">{% if bugs %}{% set b = bugs[0] %}<a href="{{ b.url or 'https://bugs.debian.org/' ~ b.id }}">#{{ b.id }}</a> {{ b.title|truncate(60) }}{% if bugs|length > 1 %} <span class="muted">+{{ bugs|length - 1 }}</span>{% endif %}{% endif %}</td>
+  <td class="small">{% if up and up.startswith(("https://", "http://")) %}<a href="{{ up }}">{{ f.upstream.forge or 'home' }}</a>{% endif %}</td>
+  <td>{% for s in f.signals if s != args.signal %}{{ signal(s) }} {% endfor %}</td>
+</tr>
+{% endfor %}
+</table>
+{% endif %}
+{% endblock %}
