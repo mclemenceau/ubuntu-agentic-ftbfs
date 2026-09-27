@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Costs{% endblock %}
+{% block main %}
+<h1>Cost ledger <span class="muted">{{ L.total|money }}</span></h1>
+<h2>By stage and model</h2>
+<table>
+<tr><th>Stage</th><th>Backend</th><th>Model</th><th class="num">Results</th><th class="num">Input tok</th><th class="num">Output tok</th><th class="num">Cache read</th><th class="num">Cost</th><th class="num">Per result</th></tr>
+{% for r in L.by_stage_model %}
+<tr><td>{{ r.stage }}</td><td>{{ r.backend }}</td><td>{{ r.model }}</td><td class="num">{{ r.calls }}</td><td class="num">{{ '{:,}'.format(r.input or 0) }}</td><td class="num">{{ '{:,}'.format(r.output or 0) }}</td><td class="num">{{ '{:,}'.format(r.cache_read or 0) }}</td><td class="num">{{ r.cost|money }}</td><td class="num">{{ (r.cost / r.calls)|money if r.calls else '-' }}</td></tr>
+{% endfor %}
+</table>
+<div class="cols">
+<div>
+<h2>Most expensive packages and clusters</h2>
+<table>
+<tr><th>Unit</th><th class="num">Results</th><th class="num">Cost</th></tr>
+{% for r in L.by_unit %}
+<tr><td class="mono">{% if r.is_cluster %}<a href="/cluster?id={{ r.unit|urlq }}">{{ r.unit }}</a> <span class="muted small">cluster</span>{% else %}<a href="/pkg/{{ r.unit|urlq }}">{{ r.unit }}</a>{% endif %}</td><td class="num">{{ r.calls }}</td><td class="num">{{ r.cost|money }}</td></tr>
+{% endfor %}
+</table>
+</div>
+<div>
+<h2>By run</h2>
+<table>
+<tr><th>Run</th><th class="num">Results</th><th class="num">Cost</th></tr>
+{% for r in L.by_run %}
+<tr><td>{% if r.run_id %}<a href="/runs/{{ r.run_id }}">#{{ r.run_id }}</a>{% else %}-{% endif %}</td><td class="num">{{ r.calls }}</td><td class="num">{{ r.cost|money }}</td></tr>
+{% endfor %}
+</table>
+</div>
+</div>
+{% endblock %}

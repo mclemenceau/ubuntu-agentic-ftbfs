@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% from "_macros.html" import file_link %}
+{% block title %}Console{% endblock %}
+{% block main %}
+<h1>Agent console</h1>
+<p class="mono small">{{ rel }}</p>
+<div class="actions">
+  <span id="state" class="badge {{ 'running' if alive else 'skip' }}">{{ 'running' if alive else 'finished' }}</span>
+  {% if alive %}
+  <button class="danger" hx-post="/console/kill" hx-vals='{{ {"dir": dir|string}|tojson }}' hx-target="#killed">kill agent</button><span id="killed"></span>
+  {% endif %}
+  {% for f in files %}{{ file_link(dir ~ '/' ~ f, f) }} {% endfor %}
+</div>
+<div hx-ext="sse" sse-connect="/sse/console?dir={{ dir|string|urlq }}" sse-close="done">
+  <div class="console" sse-swap="entry" hx-swap="beforeend" style="margin-top:12px"></div>
+  <div sse-swap="tick" hx-target="#state" hx-swap="innerHTML"></div>
+</div>
+{% endblock %}

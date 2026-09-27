@@ -44,6 +44,40 @@ Control commands:
 - `ftbfs retry <stage> <unit...>`
 - `ftbfs control pause|resume|cancel`
 
+## Web UI and reports
+
+```sh
+uv run ftbfs serve                   # http://127.0.0.1:8047
+uv run ftbfs report --source xfaces  # work/<src>/<ver>/investigation.md
+```
+
+The UI is a separate process over the same SQLite database (WAL), so it
+can be restarted without disturbing a run. Pages:
+- **Overview**: latest snapshot, delta since the previous one, the
+  pipeline DAG with per-stage counts (click through to the items), runs
+- **Run**: live per-stage counters, agents and builds in flight, running
+  cost, event stream (Server-Sent Events), pause/resume/cancel
+- **Console**: an agent's transcript as it streams (tool calls, edits,
+  results), and a kill button for a runaway agent
+- **Package**: the rendered investigation report, pipeline dots per arch,
+  `why` per stage with approve/retry buttons, every attempt's artifacts
+  (prompt, transcript, debdiff, build log) and the event timeline
+- **Gates**: every stage waiting for approval, with triage/diagnosis
+  context; **Attention**: errors, needs-human, exhausted loops
+- **Items**, **Clusters**, **Costs** (by stage/model, run and package),
+  **Snapshots** (new, regressed, gone, state changes between any two)
+
+Controls go through the same code as the CLI and are recorded as events.
+The server binds to loopback, refuses foreign Host headers and only
+accepts POSTs sent by htmx; it has no authentication, so do not expose it.
+
+`investigation.md` is stitched from per-stage Jinja partials in DAG
+order (`ftbfs/templates/stages/<stage>.md.j2`), with no tokens. A plugin
+stage can ship `plugins/templates/stages/<name>.md.j2` (which also
+overrides a built-in one); a stage without a partial gets a generic
+section. The summary and recommended next action are derived from the
+results.
+
 ## Pipeline
 
 `pipeline.toml` is the DAG. Each `[stage.<name>]` block can set:

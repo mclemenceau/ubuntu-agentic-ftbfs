@@ -11,6 +11,7 @@ maps that onto a concrete CLI (claude, opencode, ...). Every backend must:
 from __future__ import annotations
 
 import json
+import os
 import re
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
@@ -189,3 +190,27 @@ def _validate(data, schema, path, errors):
     if isinstance(data, list) and "items" in schema:
         for i, item in enumerate(data):
             _validate(item, schema["items"], f"{path}[{i}]", errors)
+
+
+def running_pid(attempt_dir: Path) -> int | None:
+    """The pid of the agent still running for this attempt, else None.
+
+    Backends write <attempt_dir>/pid right after spawning. The file
+    outlives the process and pids get recycled, so the process must also
+    have started within seconds of the file being written.
+    """
+    try:
+        pid_file = attempt_dir / "pid"
+        pid = int(pid_file.read_text())
+        written = pid_file.stat().st_mtime
+        stat = Path(f"/proc/{pid}/stat").read_text()
+        boot = next(float(line.split()[1]) for line in
+                    Path("/proc/stat").read_text().splitlines()
+                    if line.startswith("btime "))
+    except (OSError, ValueError, StopIteration):
+        return None
+    # Field 22 (starttime, in clock ticks since boot) counts after the
+    # parenthesised command name, which may itself contain spaces.
+    ticks = int(stat.rsplit(")", 1)[1].split()[19])
+    started = boot + ticks / os.sysconf("SC_CLK_TCK")
+    return pid if abs(written - started) < 30 else None

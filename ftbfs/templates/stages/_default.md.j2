@@ -1,0 +1,11 @@
+## {{ s.stage }}
+
+{% if s.description %}_{{ s.description }}_
+
+{% endif %}
+{% for r in s.results %}
+**{{ r.unit }}**: {{ r.status }} (attempt {{ r.attempt }}, {{ r.ts }})
+
+{{ r.data|tojson_pretty|fence('json') }}
+
+{% endfor %}

@@ -1,0 +1,15 @@
+## Failure excerpt
+
+| Arch | Failed at | Key error |
+|---|---|---|
+{% for r in s.results %}
+| {{ r.arch }} | {{ r.data.step or r.data.fail_stage or r.status }} | {{ (r.data.key_lines or [r.data.reason or ''])[0]|cell }} |
+{% endfor %}
+
+{% set oks = s.results|selectattr('status', 'eq', 'ok')|list %}
+{% set rep = (oks|selectattr('arch', 'eq', 'amd64')|list or oks)|first %}
+{% if rep %}
+Excerpt from the {{ rep.arch }} build log (signature `{{ rep.data.signature }}`):
+
+{{ rep.data.text|fence }}
+{% endif %}

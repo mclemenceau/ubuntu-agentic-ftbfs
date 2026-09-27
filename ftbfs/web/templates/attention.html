@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% from "_macros.html" import unit_link, status %}
+{% block title %}Attention{% endblock %}
+{% block main %}
+<h1>Needs attention</h1>
+<h2>Errors and needs-human ({{ a.problems|length }})</h2>
+<p class="muted small">Latest result per unit and stage. Errors are retried by the next run (up to the stage's error cap); retry forces a fresh attempt.</p>
+<table>
+<tr><th>Stage</th><th>Unit</th><th>Status</th><th>Why</th><th>When</th><th></th></tr>
+{% for r in a.problems %}
+{% set d = r.data|fromjson %}
+<tr><td>{{ r.stage }}</td><td class="mono">{{ unit_link(r.unit_id, r.stage) }}</td><td>{{ status(r.status) }}</td><td class="small">{{ (d.error or d.reason or '')|string|truncate(200) }}</td><td class="mono small">{{ r.ts }}</td>
+<td><span><button hx-post="/retry" hx-vals='{{ {"stage": r.stage, "unit": r.unit_id}|tojson }}' hx-target="closest span">retry</button></span></td></tr>
+{% else %}<tr><td colspan="6" class="muted">none</td></tr>
+{% endfor %}
+</table>
+<h2>Loops that hit their cap</h2>
+<table class="events small">{% for e in a.exhausted %}{% include "_event_row.html" %}{% else %}<tr><td class="muted">none</td></tr>{% endfor %}</table>
+<h2>Failed or interrupted runs</h2>
+{% with runs = a.failed_runs %}{% include "_runs_table.html" %}{% endwith %}
+{% endblock %}

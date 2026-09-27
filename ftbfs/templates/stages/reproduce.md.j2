@@ -1,0 +1,7 @@
+## Reproduction
+
+| Arch | Outcome | Where | Time | Error |
+|---|---|---|---|---|
+{% for r in s.results %}
+| {{ r.arch }} | {{ r.data.outcome or r.status }} | {{ r.data.where or '-' }} | {{ r.data.duration_s ~ ' s' if r.data.duration_s else '-' }} | {{ (r.data.key_lines or [r.data.error or r.data.reason or ''])[0]|cell }} |
+{% endfor %}

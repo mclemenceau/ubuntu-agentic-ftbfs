@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status %}
+{% block title %}Run #{{ s.run.id }}{% endblock %}
+{% block main %}
+<div hx-ext="sse" sse-connect="/sse/events?run={{ s.run.id }}&after={{ after }}">
+<h1>Run #{{ s.run.id }}</h1>
+<p class="muted small">Started {{ s.run.started }} by {{ s.run.trigger }}{% if s.run.pid %} (pid {{ s.run.pid }} on {{ s.run.host }}){% endif %}. Selection:
+{% for k, v in s.filter.items() if v not in (none, [], false, 0) %}<code>{{ k }}={{ v }}</code> {% endfor %}</p>
+<div id="panel" hx-get="/runs/{{ s.run.id }}/panel" hx-trigger="sse:tick throttle:2s">
+{% include "_run_panel.html" %}
+</div>
+<h2>Events</h2>
+<table class="events">
+<thead><tr><th>Time</th><th>Type</th><th>Stage</th><th>Unit</th><th>Details</th></tr></thead>
+<tbody sse-swap="ev" hx-swap="afterbegin">
+{% for e in events|reverse %}{% include "_event_row.html" %}{% endfor %}
+</tbody>
+</table>
+</div>
+{% endblock %}

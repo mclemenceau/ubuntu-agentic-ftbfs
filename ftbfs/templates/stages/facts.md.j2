@@ -1,0 +1,28 @@
+## Debian and upstream status
+
+{% for r in s.results %}
+{% set f = r.data %}
+{% if r.status != 'ok' %}
+Facts not available ({{ r.status }}).
+{% else %}
+- Signals: {{ f.signals|join(', ') or 'none' }}
+- Ubuntu: failing {{ f.ubuntu.newest_failing }}, archive {{ f.ubuntu.archive_version or '-' }}, {{ 'carries an Ubuntu delta' if f.ubuntu.delta else 'no Ubuntu delta' }}
+- Debian: unstable {{ f.debian.unstable or '-' }}, experimental {{ f.debian.experimental or '-' }}
+{% if f.debian.testing_repro.status %}
+- Debian testing (reproducible builds): {{ f.debian.testing_repro.version }} {{ f.debian.testing_repro.status }}
+{% endif %}
+{% set up = f.upstream.repo or f.upstream.homepage %}
+{% if up %}
+- Upstream: {{ up }}
+{% endif %}
+{% set bugs = f.debian_bugs.open + f.debian_bugs.fixed_newer %}
+{% if bugs %}
+
+| Debian bug | Title | Severity | Status | Patch |
+|---|---|---|---|---|
+{% for b in bugs %}
+| [#{{ b.id }}]({{ b.url or 'https://bugs.debian.org/' ~ b.id }}) | {{ b.title|cell }} | {{ b.severity }} | {{ 'fixed in ' ~ b.fixed_in|join(', ') if b.done else b.status }} | {{ 'yes' if b.patch else '-' }} |
+{% endfor %}
+{% endif %}
+{% endif %}
+{% endfor %}

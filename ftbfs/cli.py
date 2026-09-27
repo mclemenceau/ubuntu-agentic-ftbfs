@@ -10,7 +10,6 @@ from collections import Counter
 from pathlib import Path
 
 from .app import App
-from .db import now
 
 
 def _filter_args(p: argparse.ArgumentParser) -> None:
@@ -204,6 +203,34 @@ def cmd_verdicts(app: App, a) -> None:
     print(f"recorded LLM cost for these clusters: ${cost:.3f}")
 
 
+def cmd_report(app: App, a) -> None:
+    """investigation.md per selected source version."""
+    pairs = sorted({(r["source"], r["version"])
+                    for r in app.select(_filter(app, a))})
+    if not pairs:
+        sys.exit("nothing selected")
+    reporter = app.reporter
+    for source, version in pairs:
+        if a.stdout:
+            print(reporter.report(source, version))
+        else:
+            path = reporter.write(app.config.work_dir, source, version)
+            print(path.relative_to(app.config.root))
+
+
+def cmd_serve(app: App, a) -> None:
+    import uvicorn
+
+    from .web.app import create_app
+
+    if a.host not in ("127.0.0.1", "localhost", "::1"):
+        print("warning: the UI has no authentication; anyone who can"
+              f" reach {a.host}:{a.port} can approve gates",
+              file=sys.stderr)
+    uvicorn.run(create_app(app.config.root), host=a.host, port=a.port,
+                log_level="warning")
+
+
 def cmd_stages(app: App, a) -> None:
     registry = app.registry
     pipeline = app.pipeline
@@ -351,41 +378,20 @@ def cmd_status(app: App, a) -> None:
 
 def cmd_approve(app: App, a) -> None:
     decision = "rejected" if a.reject else "approved"
-    spec = app.pipeline.specs.get(a.stage)
-    if spec is None:
-        sys.exit(f"stage {a.stage!r} is not in the pipeline")
-    units = []
-    for target in a.units:
-        # For item stages a source name expands to its items waiting at
-        # this gate; if none are waiting, to all its active items.
-        if spec.stage.unit == "item" and "/" not in target:
-            ids = _resolve_items(app, target)
-            waiting = [r["unit_id"] for r in app.db.query(
-                "SELECT unit_id FROM gate WHERE stage=? AND"
-                " decision='pending' AND unit_id LIKE ?",
-                (a.stage, f"{target}/%"))]
-            units += waiting or [
-                iid for iid in ids
-                if app.db.one("SELECT lifecycle FROM item WHERE id=?",
-                              (iid,))["lifecycle"] != "gone"]
-        else:
-            units.append(target)
+    try:
+        units = app.approve(a.stage, a.units, decision, "cli", a.note)
+    except ValueError as e:
+        sys.exit(str(e))
     for uid in units:
-        app.db.execute(
-            "INSERT INTO gate VALUES (?, ?, ?, ?, ?, ?)"
-            " ON CONFLICT(unit_id, stage) DO UPDATE SET"
-            " decision=excluded.decision, by=excluded.by,"
-            " note=excluded.note, ts=excluded.ts",
-            (uid, a.stage, decision, "cli", a.note, now()),
-        )
-        app.db.event(f"gate_{decision}", unit=uid, stage=a.stage,
-                     note=a.note, by="cli")
         print(f"{decision}: {a.stage} {uid}")
 
 
 def cmd_retry(app: App, a) -> None:
+    try:
+        app.retry(a.stage, a.units, "cli")
+    except ValueError as e:
+        sys.exit(str(e))
     for uid in a.units:
-        app.db.event("retry", unit=uid, stage=a.stage, by="cli")
         print(f"retry requested: {a.stage} {uid}")
 
 
@@ -400,20 +406,11 @@ def cmd_lp_login(app: App, a) -> None:
 
 
 def cmd_control(app: App, a) -> None:
-    app.reap_stale_runs()
-    run = app.db.one(
-        "SELECT id FROM run WHERE id=?" if a.run
-        else "SELECT id FROM run WHERE status='running'"
-        " ORDER BY id DESC LIMIT 1",
-        (a.run,) if a.run else (),
-    )
-    if run is None:
-        sys.exit("no running run")
-    control = None if a.action == "resume" else a.action
-    app.db.execute("UPDATE run SET control=? WHERE id=?",
-                   (control, run["id"]))
-    app.db.event(f"run_{a.action}", run_id=run["id"], by="cli")
-    print(f"run {run['id']}: {a.action}")
+    try:
+        run_id = app.control(a.action, "cli", a.run)
+    except LookupError as e:
+        sys.exit(str(e))
+    print(f"run {run_id}: {a.action}")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -464,6 +461,18 @@ def main(argv: list[str] | None = None) -> None:
     _filter_args(s)
     s.add_argument("--action", action="append")
     s.set_defaults(func=cmd_verdicts)
+
+    s = sub.add_parser("report", help="write investigation.md per"
+                       " selected source version")
+    _filter_args(s)
+    s.add_argument("--stdout", action="store_true",
+                   help="print instead of writing work/<src>/<ver>/")
+    s.set_defaults(func=cmd_report)
+
+    s = sub.add_parser("serve", help="web UI: live runs, gates, reports")
+    s.add_argument("--host", default="127.0.0.1")
+    s.add_argument("--port", type=int, default=8047)
+    s.set_defaults(func=cmd_serve)
 
     s = sub.add_parser("stages", help="registered stages and pipeline")
     s.set_defaults(func=cmd_stages)

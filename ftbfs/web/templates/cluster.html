@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ id }}{% endblock %}
+{% block main %}
+<h1 class="mono">{{ id }}</h1>
+<div class="cols">
+<div class="report">
+{% for s in sections %}{{ s|markdown }}{% else %}<p class="muted">No cluster-level results yet.</p>{% endfor %}
+</div>
+<div>
+<h2>Members ({{ members|length }})</h2>
+<table class="small">
+{% for m in members %}
+<tr><td class="mono"><a href="/pkg/{{ m.source|urlq }}/{{ m.version|urlq }}">{{ m.source }}</a> {{ m.version }}</td><td>{{ m.arch }}</td><td>{% if m.lifecycle == 'gone' %}<span class="badge skip">gone</span>{% endif %}</td></tr>
+{% endfor %}
+</table>
+<h2>Timeline</h2>
+<table class="events small">{% for e in events %}{% include "_event_row.html" %}{% endfor %}</table>
+</div>
+</div>
+{% endblock %}

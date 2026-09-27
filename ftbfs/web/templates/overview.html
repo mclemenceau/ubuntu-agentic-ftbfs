@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status %}
+{% block title %}Overview{% endblock %}
+{% block main %}
+<h1>Overview</h1>
+<div class="grid">
+  <div class="card">
+    <div class="muted">Latest snapshot</div>
+    {% if snapshot %}
+    <div class="big">{{ snapshot.series }}</div>
+    <div class="small muted">#{{ snapshot.id }} fetched {{ snapshot.fetched_at }}</div>
+    {% else %}<div>none yet: <code>ftbfs ingest</code></div>{% endif %}
+  </div>
+  <div class="card">
+    <div class="muted">Failing items</div>
+    <div class="big">{{ (lifecycle.get('active', 0) + lifecycle.get('new', 0)) }}</div>
+    <div class="small muted">{{ lifecycle.get('new', 0) }} new, {{ lifecycle.get('gone', 0) }} gone overall</div>
+  </div>
+  <div class="card">
+    <div class="muted">Since the previous snapshot</div>
+    {% if diff %}
+    <div class="big"><span class="fail">+{{ diff.new|length + diff.regressed|length }}</span> / <span class="ok">-{{ diff.gone|length }}</span></div>
+    <div class="small"><a href="/snapshots">{{ diff.regressed|length }} regressed, {{ diff.fixed_sources|length }} packages fixed, {{ diff.changed|length }} changed state</a></div>
+    {% else %}<div class="muted">needs two snapshots</div>{% endif %}
+  </div>
+  <div class="card">
+    <div class="muted">LLM cost recorded</div>
+    <div class="big">{{ cost|money }}</div>
+    <div class="small"><a href="/costs">ledger</a></div>
+  </div>
+</div>
+
+<h2>Pipeline</h2>
+<p class="muted small">Latest result per unit. Click a status to list the items.</p>
+<div class="dag">
+{% for layer in layers %}
+  {% if not loop.first %}<div class="arrow">&rarr;</div>{% endif %}
+  <div class="layer">
+  {% for name in layer %}
+    {% set spec = pipeline[name] %}
+    {% set c = counts.get(name, {}) %}
+    <div class="node">
+      <div class="name">{{ name }}</div>
+      <div class="meta">{{ spec.stage.kind }} &middot; per {{ spec.stage.unit }}{% if spec.agent %} &middot; {{ spec.agent.backend }}/{{ spec.agent.tier }}{% endif %}{% if spec.gate %} &middot; gated{% endif %}{% if spec.on_fail %} &middot; on fail &rarr; {{ spec.on_fail.goto }}{% endif %}</div>
+      <div class="chips">
+      {% for st, n in c.items()|sort %}
+        {% if st == 'gate' %}<a class="gate" href="/gates">{{ n }} at gate</a>
+        {% else %}<a class="{{ st }}" href="/items?stage={{ name }}&status={{ st }}&everything=1">{{ n }} {{ st }}</a>{% endif %}
+      {% else %}<span class="muted">no results</span>
+      {% endfor %}
+      </div>
+    </div>
+  {% endfor %}
+  </div>
+{% endfor %}
+</div>
+
+<h2>Recent runs</h2>
+{% include "_runs_table.html" %}
+{% endblock %}

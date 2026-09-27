@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import socket
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .agents import make_backend
+from .agents.base import running_pid
 from .config import Config, load_config
 from .core.context import Paths, Units
 from .core.pipeline import Pipeline
@@ -39,6 +41,12 @@ class App:
                 self.config.default_backend,
             )
         return self._pipeline
+
+    @property
+    def reporter(self):
+        from .report import Reporter
+
+        return Reporter(self.db, self.pipeline, self.config.plugins_dir)
 
     def backends(self) -> dict:
         names = {s.agent.backend for s in self.pipeline if s.agent}
@@ -187,6 +195,85 @@ class App:
             out[iid] = {"filtered_out": [],
                         "stages": sched.explain(uid_for)}
         return out
+
+
+    # -- controls (shared by the CLI and the web UI; all are events) -----
+
+    def approve(self, stage: str, targets: list[str], decision: str,
+                by: str, note: str | None = None) -> list[str]:
+        """Record a gate decision. For item stages a source name expands
+        to its items waiting at this gate, or if none are waiting, to all
+        its active items. Returns the unit ids decided."""
+        if decision not in ("approved", "rejected"):
+            raise ValueError(f"bad decision {decision!r}")
+        spec = self.pipeline.specs.get(stage)
+        if spec is None:
+            raise ValueError(f"stage {stage!r} is not in the pipeline")
+        units: list[str] = []
+        for target in targets:
+            if spec.stage.unit == "item" and "/" not in target:
+                waiting = [r["unit_id"] for r in self.db.query(
+                    "SELECT unit_id FROM gate WHERE stage=? AND"
+                    " decision='pending' AND unit_id LIKE ?",
+                    (stage, f"{target}/%"))]
+                units += waiting or [r["id"] for r in self.db.query(
+                    "SELECT id FROM item WHERE source=? AND"
+                    " lifecycle != 'gone' ORDER BY id", (target,))]
+            else:
+                units.append(target)
+        for uid in units:
+            self.db.execute(
+                "INSERT INTO gate VALUES (?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT(unit_id, stage) DO UPDATE SET"
+                " decision=excluded.decision, by=excluded.by,"
+                " note=excluded.note, ts=excluded.ts",
+                (uid, stage, decision, by, note, now()),
+            )
+            self.db.event(f"gate_{decision}", unit=uid, stage=stage,
+                          note=note, by=by)
+        return units
+
+    def retry(self, stage: str, units: list[str], by: str) -> None:
+        """Force `stage` to re-run for these units on the next run."""
+        if stage not in self.pipeline.specs:
+            raise ValueError(f"stage {stage!r} is not in the pipeline")
+        for uid in units:
+            self.db.event("retry", unit=uid, stage=stage, by=by)
+
+    def control(self, action: str, by: str,
+                run_id: int | None = None) -> int:
+        """pause, resume or cancel a run (the latest running one by
+        default). Returns the run id."""
+        if action not in ("pause", "resume", "cancel"):
+            raise ValueError(f"bad action {action!r}")
+        self.reap_stale_runs()
+        run = self.db.one(
+            "SELECT id FROM run WHERE id=?" if run_id
+            else "SELECT id FROM run WHERE status='running'"
+            " ORDER BY id DESC LIMIT 1",
+            (run_id,) if run_id else (),
+        )
+        if run is None:
+            raise LookupError("no running run")
+        self.db.execute("UPDATE run SET control=? WHERE id=?",
+                        (None if action == "resume" else action, run["id"]))
+        self.db.event(f"run_{action}", run_id=run["id"], by=by)
+        return run["id"]
+
+    def kill_agent(self, attempt_dir: Path, by: str) -> int:
+        """Kill a runaway agent by the pid its backend recorded. The
+        stage then records an error for that unit. Returns the pid."""
+        attempt_dir = attempt_dir.resolve()
+        if not attempt_dir.is_relative_to(self.config.work_dir.resolve()):
+            raise ValueError("not an attempt directory")
+        pid = running_pid(attempt_dir)
+        if pid is None:
+            raise LookupError("agent is not running")
+        # Backends start agents in their own session: kill the group.
+        os.killpg(pid, signal.SIGKILL)
+        self.db.event("agent_killed", by=by, pid=pid,
+                      attempt_dir=str(attempt_dir))
+        return pid
 
 
 STALE_AFTER = timedelta(minutes=15)

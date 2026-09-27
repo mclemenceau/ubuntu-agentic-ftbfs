@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}ftbfs{% endblock %} - ftbfs</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/htmx.min.js"></script>
+<script src="/static/htmx-ext-sse.js"></script>
+</head>
+<body>
+<header>
+  <a class="brand" href="/">ftbfs</a>
+  <nav>
+    <a href="/">Overview</a>
+    {% if running %}<a class="live" href="/runs/{{ running.id }}">&#9679; Run #{{ running.id }}</a>
+    {% else %}<a href="/runs">Runs</a>{% endif %}
+    <a href="/gates">Gates{% if nav_gates %}<span class="count">{{ nav_gates }}</span>{% endif %}</a>
+    <a href="/attention">Attention{% if nav_attention %}<span class="count bad">{{ nav_attention }}</span>{% endif %}</a>
+    <a href="/items">Items</a>
+    <a href="/clusters">Clusters</a>
+    <a href="/costs">Costs</a>
+    <a href="/snapshots">Snapshots</a>
+  </nav>
+</header>
+<main>
+{% block main %}{% endblock %}
+</main>
+</body>
+</html>

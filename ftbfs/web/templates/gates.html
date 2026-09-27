@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% from "_macros.html" import unit_link %}
+{% block title %}Gates{% endblock %}
+{% block main %}
+<h1>Gate queue</h1>
+<p class="muted small">Approving lets the stage run on the next <code>ftbfs run</code>. Outward stages (Launchpad, Debian, forges) are always gated.</p>
+{% for stage, gates in grouped.items() %}
+<h2>{{ stage }} <span class="muted">({{ gates|length }})</span></h2>
+<table>
+<tr><th>Unit</th><th>Context</th><th>Waiting since</th><th>Decision</th></tr>
+{% for g in gates %}
+<tr>
+  <td class="mono">{{ unit_link(g.unit_id, stage) }}</td>
+  <td class="small">
+    {% if g.triage %}<div><b>triage</b> {{ g.triage.action }}, fixable {{ g.triage.fixable }}: {{ g.triage.summary|truncate(140) }}</div>{% endif %}
+    {% if g.diagnose %}<div><b>diagnosis</b> {{ g.diagnose.fix_kind }}, risk {{ g.diagnose.risk }}: {{ g.diagnose.fix_strategy|truncate(160) }}</div>{% endif %}
+    {% if g.reproduce %}<div><b>reproduce</b> {{ g.reproduce.outcome or g.reproduce.error }}</div>{% endif %}
+  </td>
+  <td class="mono small">{{ g.ts }}</td>
+  <td><span class="actions">
+    <button class="approve" hx-post="/gates/decide" hx-vals='{{ {"stage": stage, "unit": g.unit_id, "decision": "approved"}|tojson }}' hx-target="closest span">approve</button>
+    <button class="reject" hx-post="/gates/decide" hx-vals='{{ {"stage": stage, "unit": g.unit_id, "decision": "rejected"}|tojson }}' hx-target="closest span">reject</button>
+  </span></td>
+</tr>
+{% endfor %}
+</table>
+{% else %}
+<p class="muted">Nothing is waiting for approval.</p>
+{% endfor %}
+<h2>Recent decisions</h2>
+<table class="small">
+<tr><th>Stage</th><th>Unit</th><th>Decision</th><th>By</th><th>Note</th><th>When</th></tr>
+{% for g in recent %}
+<tr><td>{{ g.stage }}</td><td class="mono">{{ unit_link(g.unit_id, g.stage) }}</td><td><span class="badge {{ 'ok' if g.decision == 'approved' else 'fail' }}">{{ g.decision }}</span></td><td>{{ g.by or '-' }}</td><td>{{ g.note or '' }}</td><td class="mono">{{ g.ts }}</td></tr>
+{% endfor %}
+</table>
+{% endblock %}

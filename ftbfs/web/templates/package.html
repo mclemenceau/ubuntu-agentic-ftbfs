@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status, dot, file_link, unit_link %}
+{% block title %}{{ inv.source }} {{ inv.version }}{% endblock %}
+{% block main %}
+<h1>{{ inv.source }} <span class="muted">{{ inv.version }}</span></h1>
+<div class="actions small">
+  {% if versions|length > 1 %}other versions:
+    {% for v in versions if v != inv.version %}<a href="/pkg/{{ inv.source|urlq }}/{{ v|urlq }}">{{ v }}</a> {% endfor %}&middot;{% endif %}
+  <a href="/pkg/{{ inv.source|urlq }}/{{ inv.version|urlq }}/investigation.md">investigation.md</a>
+  &middot; <a href="/items?source={{ inv.source|urlq }}&everything=1">items</a>
+</div>
+<div class="cols">
+<div>
+  <div class="report">{{ report|markdown }}</div>
+</div>
+<div>
+  <h2>Per architecture</h2>
+  <table>
+  <tr><th>Arch</th><th>Pipeline</th></tr>
+  {% for i in inv.items %}
+  <tr><td>{{ i.arch }}</td><td>{% for s in stages %}{{ dot(matrix[i.id].get(s), s) }} {% endfor %}</td></tr>
+  {% endfor %}
+  </table>
+
+  <h2>Why</h2>
+  {% for iid, info in why.items() %}
+  <details {% if loop.first %}open{% endif %}><summary class="mono">{{ iid.split('/')[2] }}</summary>
+  {% if info.filtered_out %}<ul class="small">{% for r in info.filtered_out %}<li>excluded: {{ r }}</li>{% endfor %}</ul>
+  {% else %}
+  <table class="small">
+  {% for stage, reason in info.stages %}
+  <tr><td>{{ stage }}</td><td>{{ reason }}</td><td>
+    {% if reason == 'waiting for manual approval' %}
+    {% set uid = iid if unit_types[stage] == 'item' else (inv.source if unit_types[stage] == 'package' else none) %}
+    {% if uid %}<span><button class="approve" hx-post="/gates/decide" hx-vals='{{ {"stage": stage, "unit": uid, "decision": "approved"}|tojson }}' hx-target="closest span">approve</button>
+    <button class="reject" hx-post="/gates/decide" hx-vals='{{ {"stage": stage, "unit": uid, "decision": "rejected"}|tojson }}' hx-target="closest span">reject</button></span>{% endif %}
+    {% elif unit_types[stage] == 'item' and (reason.startswith('cached') or reason.startswith('gave up')) %}
+    <span><button hx-post="/retry" hx-vals='{{ {"stage": stage, "unit": iid}|tojson }}' hx-target="closest span">retry</button></span>
+    {% endif %}
+  </td></tr>
+  {% endfor %}
+  </table>
+  {% endif %}
+  </details>
+  {% endfor %}
+
+  <h2>Attempts and artifacts</h2>
+  {% for a in attempts %}
+  <details><summary>{{ a.arch }} &middot; {{ a.stage }} &middot; {{ a.name }}{% if a.usage %} <span class="muted small">{{ a.usage.model }} {{ a.usage.cost|money }}{% if a.usage.error %} <span class="error">{{ a.usage.error|truncate(60) }}</span>{% endif %}</span>{% endif %}</summary>
+  <div class="small">
+    {% if a.agent_dir %}<a href="/console?dir={{ a.agent_dir|string|urlq }}"><b>console</b></a> &middot; {% endif %}
+    {% for f in a.files %}{{ file_link(f, f.name) }}{% if not loop.last %} &middot; {% endif %}{% endfor %}
+  </div>
+  </details>
+  {% else %}<p class="muted small">no attempts on disk</p>
+  {% endfor %}
+
+  <h2>Timeline</h2>
+  <table class="events small">
+  {% for e in events %}{% include "_event_row.html" %}{% endfor %}
+  </table>
+</div>
+</div>
+{% endblock %}

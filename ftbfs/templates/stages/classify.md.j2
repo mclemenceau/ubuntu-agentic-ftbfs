@@ -1,0 +1,12 @@
+## Classification
+
+| Arch | Class | Family | Cluster |
+|---|---|---|---|
+{% for r in s.results %}
+| {{ r.arch }} | {{ r.data.class }} | {{ r.data.family or '-' }} | `{{ r.data.cluster_id }}` |
+{% endfor %}
+{% set hints = s.results|map(attribute='data')|selectattr('hint')|map(attribute='hint')|unique|list %}
+{% for h in hints %}
+
+Rule hint: {{ h|oneline }}
+{% endfor %}

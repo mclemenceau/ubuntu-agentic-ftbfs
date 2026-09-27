@@ -1,0 +1,27 @@
+## Diagnosis
+
+{% for r in s.results %}
+{% set d = r.data %}
+{% if r.status != 'ok' %}
+Cluster `{{ r.unit }}`: {{ r.status }} {{ d.error or '' }}
+{% else %}
+Cluster `{{ r.unit }}` ({{ r.model or 'LLM' }}): **{{ d.fix_kind }}**, risk {{ d.risk }}, confidence {{ d.confidence }}{{ '' if d.applies_to_all_members else ', does not apply to every member' }}.
+
+**Root cause.** {{ d.root_cause|oneline }}
+
+**Evidence.**
+{% for e in d.evidence %}
+- {{ e|oneline }}
+{% endfor %}
+
+**Fix strategy.** {{ d.fix_strategy|oneline }}
+
+**Patch outline.**
+{% for p in d.patch_outline %}
+{{ loop.index }}. {{ p|oneline }}
+{% endfor %}
+
+**Upstream.** {{ d.upstream|oneline }}
+{% endif %}
+
+{% endfor %}

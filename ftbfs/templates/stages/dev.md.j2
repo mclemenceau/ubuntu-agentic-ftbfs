@@ -1,0 +1,27 @@
+## Proposed fix
+
+{% for r in s.results %}
+{% set d = r.data %}
+### {{ r.arch or r.unit }}: {{ r.status }} (attempt {{ r.attempt }})
+
+{% if r.status == 'ok' %}
+{{ d.summary|oneline }} Version {{ d.version }}, confidence {{ d.confidence }}{% if r.model %}, by {{ r.model }}{% endif %}.
+
+- Files changed: {{ d.files_changed|join(', ') }}
+- Forwarded: {{ d.forwarded }}{% if d.bug_debian %}; Debian bug {{ d.bug_debian }}{% endif %}
+
+{% if d.notes %}
+- Notes for the reviewer: {{ d.notes|oneline }}
+{% endif %}
+{% set text = d.debdiff|read_file %}
+{% if text %}
+
+Debdiff ({{ d.debdiff_lines }} lines, `{{ d.debdiff }}`):
+
+{{ text|fence('diff') }}
+{% endif %}
+{% else %}
+{{ d.reason or d.error or 'no result' }}
+{% endif %}
+
+{% endfor %}

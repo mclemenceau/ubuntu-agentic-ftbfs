@@ -1,0 +1,17 @@
+## Triage
+
+{% for r in s.results %}
+{% set t = r.data %}
+{% if r.status != 'ok' %}
+Cluster `{{ r.unit }}`: {{ r.status }} {{ t.error or t.reason or '' }}
+{% else %}
+Cluster `{{ r.unit }}` ({{ 'facts' if t.decided_by == 'facts' else (r.model or 'LLM') }}): **{{ t.action }}**, fixable {{ t.fixable }}, {{ 'obvious' if t.obvious else 'not obvious' }}, category {{ t.category }}, confidence {{ t.confidence }}.
+
+{{ t.summary|oneline }}
+{% if t.root_cause_guess %}
+
+Likely cause: {{ t.root_cause_guess|oneline }}
+{% endif %}
+{% endif %}
+
+{% endfor %}

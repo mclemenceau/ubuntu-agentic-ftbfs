@@ -56,8 +56,8 @@ an investigation report, shown on a dashboard.
 | 3 | Debian/upstream facts (Sources, UDD, repro builds) | done | 801ec9b |
 | 4 | Claude backend, triage, diagnose | done | 820c3be |
 | 5 | Builder: reproduce (local sbuild; PPA path written) | local done, PPA deferred | 161fa34 |
-| 6 | Dev agent + verify loop | **in progress, uncommitted** | - |
-| 7 | Web app (live run view, gate queue, dashboard) | not started | - |
+| 6 | Dev agent + verify loop | done (retry fix uncommitted) | 94a2368 |
+| 7 | Web app + investigation reports | **done, uncommitted** | - |
 | 8 | Extensibility proof: adversarial review, opencode, lp_file_bug | not started | - |
 
 Commits after the first two are **unsigned**, at your request, because
@@ -77,51 +77,70 @@ gpg-agent kept timing out.
   - projected for the whole selection: about $15 (not run yet)
 - **Reproduce:** 5 of 5 amd64 failures reproduced locally with the
   identical signature, about 22 s each.
-- **Dev + verify (M6 first live run, run 17):**
-  - 3 of 5 fixed and verified: hexcurse (C23 const), freehsm-c (FORTIFY),
-    libshairport (signal handler prototype). About $0.07 to $0.09 of
-    agent time each.
-  - libevhtp and xfaces not fixed yet; see open issues 1 and 2.
+- **Dev + verify (runs 17 and 18):**
+  - 4 of 5 fixed and verified: hexcurse (C23 const), freehsm-c (FORTIFY),
+    libshairport (signal handler prototype), xfaces (K&R prototypes;
+    see open issue 1). About $0.07 to $0.23 of agent time each.
+  - libevhtp: the cumulative retry fixed both CMake 4 errors, then the
+    build hit a third, unrelated failure (OpenSSL: incomplete
+    `ASN1_OCTET_STRING`). The loop cap (2) stopped it: needs a human or
+    another `ftbfs retry dev`.
 
-## Milestone 6: what exists (uncommitted)
+## Milestone 6: dev + verify
 
-- **`ftbfs/builder/srcpkg.py`:** the agent only edits files; code does
-  the Debian mechanics:
-  - git baseline, and turning edits into a `debian/patches/*.patch` with
-    a DEP-3 header, applied with quilt
-  - `dch` entry with the next Ubuntu version, and `update-maintainer` on
-    first delta
-  - `dpkg-source -b` and `debdiff`
-- **`ftbfs/stages/dev.py` + `prompts/dev.md`:**
-  - tools are Read/Grep/Glob/Edit/Write only (no shell, no network)
-  - context: diagnosis, excerpt, facts, a reference fix from a verified
-    cluster member, and retry feedback
-  - gated; `max_errors = 1`
-- **`ftbfs/stages/verify.py`:** sbuild of the new `.dsc`. A failure loops
-  back to dev (at most 2 loops); the last loop escalates to the large
-  tier.
-- **Also changed:**
-  - `scheduler.py`: the `max_errors` option
-  - `reproduce.py`: records `excerpt_path`
-  - `pipeline.toml`: dev and verify blocks
-  - `tests/test_dev_verify.py`: an offline loop test with a real tiny
-    source package
-- All 111 tests pass and lint is clean (checked 2026-09-27).
+- `ftbfs/builder/srcpkg.py`: the agent only edits files; code does the
+  Debian mechanics (DEP-3 quilt patch, `dch`, `update-maintainer`,
+  `dpkg-source -b`, `debdiff`).
+- `ftbfs/stages/dev.py` + `prompts/dev.md`: Read/Grep/Glob/Edit/Write
+  only; gated; `max_errors = 1`.
+- `ftbfs/stages/verify.py`: sbuild of the new `.dsc`; failures loop back
+  to dev (at most 2 loops, the last on the large tier).
+- Retries are cumulative (was open issue 1): each attempt saves its raw
+  edits as `attempt-N/edits.diff`; a retry replays the latest successful
+  attempt's edits on a fresh tree, the agent adds to them, and the
+  tooling regenerates one combined patch. `edits.diff` was backfilled by
+  hand for the xfaces and libevhtp attempts made before this.
+- The claude backend now reports API failures (e.g. "API 429: You've
+  hit your session limit") instead of the CLI's misleading subtype
+  "success". That was why run 17's escalated third attempts errored.
+
+## Milestone 7: web app and reports (uncommitted)
+
+- `ftbfs serve` (FastAPI + Jinja + htmx + SSE, `ftbfs/web/`):
+  - overview (snapshot delta, DAG with counts, runs)
+  - live run: counters, agents/builds in flight, cost, event stream,
+    pause/resume/cancel
+  - agent console: streams `transcript.jsonl`, kill button (the pid is
+    checked against the process start time, so a recycled pid is never
+    signalled)
+  - package page: rendered report, per-arch dots, `why` with
+    approve/retry, attempts and artifacts, timeline
+  - gate queue with context, attention, items, clusters, cost ledger,
+    snapshot deltas
+  - `queries.py` holds all the SQL; `transcript.py` renders claude
+    stream-json (unknown events are shown raw)
+  - security: loopback bind, Host check, POSTs need `HX-Request`, file
+    serving limited to `work/`, `cache/` and snapshots
+- `ftbfs report` / `ftbfs/report.py`: `investigation.md` per source
+  version, stitched from `ftbfs/templates/stages/<stage>.md.j2` in DAG
+  order; plugins override with `plugins/templates/`. Summary and next
+  action are deterministic.
+- Approve/retry/control/kill moved into `App`, shared by CLI and UI.
+- Checked end to end: the real server in headless Chrome over the real DB
+  (overview, package, run, console, gates), and SSE events from a
+  separate `ftbfs run` process reaching an open stream.
+- 121 tests pass, lint clean.
 
 ## Open issues (fix these next, in order)
 
-1. **Retries lose the previous fix.** Each dev attempt starts from a
-   fresh tree and only sees the previous debdiff as text. xfaces'
-   attempt 2 fixed the new error (StartTimer prototype) but dropped the
-   first fix (regexp.h), so verify got the original error back. libevhtp
-   likewise regressed to `same-failure`. Fix: start a retry from the
-   previous attempt's tree, which makes changes cumulative. The agent
-   then only adds the new fix, and the tooling regenerates one combined
-   patch.
-2. **libevhtp and xfaces need a re-run.** Their third, escalated dev
-   attempt did not complete. After fixing issue 1, run
-   `ftbfs retry dev libevhtp/1.2.18-2.1build6/amd64` (and the same for
-   the xfaces item), then `ftbfs run` with the same selection.
+1. **xfaces' verified fix carries a probably unneeded fallback.** Its
+   retry got build feedback from the old non-cumulative attempt 2, so
+   the agent also added `-std=gnu17` in `debian/rules` in case the
+   header edit was missing (see its notes). The regexp.h prototypes
+   alone should fix it: drop the rules change and rebuild before using
+   this debdiff. The M8 adversarial review should catch cases like this.
+2. **libevhtp needs a human** (OpenSSL 3 opaque struct in sslutils.c),
+   or one more `ftbfs retry dev libevhtp/1.2.18-2.1build6/amd64`.
 3. **The dev unit is per item (arch).** It should be per source+version:
    the same fix is currently made separately for each failing arch. That
    matters once several arches of one package are approved.
@@ -131,19 +150,15 @@ gpg-agent kept timing out.
    and a PPA with the Proposed dependency, set as `ppa = "owner/name"` in
    `[stage.reproduce]`.
 6. **The `confirm` stage and the rules learning loop** (LLM-proposed
-   regexes going to a review queue) are deferred. Add them only if the
-   reports show mixed clusters or low rule coverage.
+   regexes going to a review queue) are deferred, and with them the UI's
+   rule review queue. Add them only if the reports show mixed clusters
+   or low rule coverage.
+7. **UI gaps against the plan:** retry with another backend or tier
+   from the UI (retry exists, with the configured agent only); no
+   authentication (loopback only, by design).
 
-## Next milestones after M6
+## Next milestone
 
-- **M7:** web app (FastAPI + htmx + SSE) over the same DB:
-  - live run view and agent console (tail `transcript.jsonl`)
-  - item timeline
-  - generic gate queue
-  - cost ledger
-  - snapshot deltas
-  - rendered `investigation.md`, stitched from per-stage template partials
-    (per-item reports are not written yet)
 - **M8:** extensibility proof:
   - `adversarial_review` stage (on_fail goes to dev), config only
   - opencode backend, with triage A/B against claude
@@ -161,10 +176,13 @@ S="--source hexcurse --source freehsm-c --source xfaces \
 uv run ftbfs verdicts $S             # triage + diagnosis
 uv run ftbfs show xfaces             # event timeline + results
 ls work/xfaces/*/amd64/dev/attempt-*/  # agent transcripts, debdiffs
+uv run ftbfs serve                   # UI on http://127.0.0.1:8047
+uv run ftbfs report $S               # work/<src>/<ver>/investigation.md
 ```
 
 Verified debdiffs:
 `work/{hexcurse,freehsm-c,libshairport}/*/amd64/dev/attempt-1/fix.debdiff`
+and `work/xfaces/3.3-30.3/amd64/dev/attempt-4/fix.debdiff` (see issue 1).
 
 ## Conventions and preferences (from the user)
 

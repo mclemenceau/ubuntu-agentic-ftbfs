@@ -1,0 +1,23 @@
+{% macro unit_link(u, stage=None) -%}
+{%- if u is none -%}
+{%- elif u.count('/') == 2 -%}
+{%- set p = u.split('/') -%}
+<a href="/pkg/{{ p[0]|urlq }}/{{ p[1]|urlq }}">{{ u }}</a>
+{%- elif stage and unit_types.get(stage) == 'cluster' -%}
+<a href="/cluster?id={{ u|urlq }}">{{ u }}</a>
+{%- elif stage and unit_types.get(stage) == 'package' -%}
+<a href="/pkg/{{ u|urlq }}">{{ u }}</a>
+{%- else -%}{{ u }}{%- endif -%}
+{%- endmacro %}
+
+{% macro status(st) -%}
+<span class="badge {{ st }}">{{ st }}</span>
+{%- endmacro %}
+
+{% macro dot(st, title='') -%}
+<span class="dot {{ st or 'none' }}" title="{{ title }}: {{ st or 'no result' }}"></span>
+{%- endmacro %}
+
+{% macro file_link(path, label=None) -%}
+<a href="/file?path={{ path|string|urlq }}">{{ label or path }}</a>
+{%- endmacro %}

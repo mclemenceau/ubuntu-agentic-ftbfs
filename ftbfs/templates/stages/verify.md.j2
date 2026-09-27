@@ -1,0 +1,7 @@
+## Verification
+
+| Arch | Version | Outcome | Time | Error |
+|---|---|---|---|---|
+{% for r in s.results %}
+| {{ r.arch }} | {{ r.data.version or '-' }} | {{ r.data.outcome or r.status }} | {{ r.data.duration_s ~ ' s' if r.data.duration_s else '-' }} | {{ (r.data.key_lines or [r.data.error or ''])[0]|cell }} |
+{% endfor %}

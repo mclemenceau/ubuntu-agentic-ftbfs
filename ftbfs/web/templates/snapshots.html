@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Snapshots{% endblock %}
+{% block main %}
+<h1>Snapshots</h1>
+{% if snaps|length < 2 %}
+<p class="muted">Deltas need at least two snapshots (<code>ftbfs ingest</code>).</p>
+{% else %}
+<form class="filters" method="get">
+  <label>from<select name="a">{% for s in snaps %}<option value="{{ s.id }}" {% if s.id == a %}selected{% endif %}>#{{ s.id }} {{ s.fetched_at }}</option>{% endfor %}</select></label>
+  <label>to<select name="b">{% for s in snaps %}<option value="{{ s.id }}" {% if s.id == b %}selected{% endif %}>#{{ s.id }} {{ s.fetched_at }}</option>{% endfor %}</select></label>
+  <button>compare</button>
+</form>
+<div class="grid">
+  <div class="card"><div class="muted">Items</div><div class="big">{{ diff.count_a }} &rarr; {{ diff.count_b }}</div></div>
+  <div class="card"><div class="muted">New failures</div><div class="big fail">{{ diff.new|length }}</div></div>
+  <div class="card"><div class="muted">Regressed (failing again)</div><div class="big fail">{{ diff.regressed|length }}</div></div>
+  <div class="card"><div class="muted">Gone (fixed or superseded)</div><div class="big ok">{{ diff.gone|length }}</div><div class="small muted">{{ diff.fixed_sources|length }} packages no longer listed</div></div>
+</div>
+{% for title, ids in (('New failures', diff.new), ('Regressed', diff.regressed), ('Gone', diff.gone)) %}
+<details {% if ids and ids|length < 60 %}open{% endif %}><summary><b>{{ title }}</b> ({{ ids|length }})</summary>
+<div class="small mono">{% for i in ids %}{% set p = i.split('/') %}<a href="/pkg/{{ p[0]|urlq }}/{{ p[1]|urlq }}">{{ i }}</a><br>{% endfor %}</div>
+</details>
+{% endfor %}
+<details><summary><b>State changed</b> ({{ diff.changed|length }})</summary>
+<table class="small">{% for i, sa, sb in diff.changed %}<tr><td class="mono">{{ i }}</td><td>{{ sa }} &rarr; {{ sb }}</td></tr>{% endfor %}</table>
+</details>
+{% endif %}
+<h2>All snapshots</h2>
+<table class="small"><tr><th>#</th><th>Series</th><th>Fetched</th><th>Source</th></tr>
+{% for s in snaps %}<tr><td>{{ s.id }}</td><td>{{ s.series }}</td><td class="mono">{{ s.fetched_at }}</td><td class="mono">{{ s.source_url }}</td></tr>{% endfor %}
+</table>
+{% endblock %}

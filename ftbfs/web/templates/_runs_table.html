@@ -1,0 +1,8 @@
+{% from "_macros.html" import status %}
+<table>
+<tr><th>Run</th><th>Status</th><th>Started</th><th>Finished</th><th>Trigger</th><th class="num">Results</th><th class="num">Cost</th></tr>
+{% for r in runs %}
+<tr><td><a href="/runs/{{ r.id }}">#{{ r.id }}</a></td><td>{{ status(r.status) }}{% if r.control %} <span class="badge gate">{{ r.control }}</span>{% endif %}</td><td class="mono">{{ r.started }}</td><td class="mono">{{ r.finished or '-' }}</td><td>{{ r.trigger }}</td><td class="num">{{ r.results }}</td><td class="num">{{ r.cost|money }}</td></tr>
+{% else %}<tr><td colspan="7" class="muted">no runs yet: <code>ftbfs run</code></td></tr>
+{% endfor %}
+</table>
