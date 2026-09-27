@@ -168,3 +168,26 @@ def test_registered_with_state_dir(tmp_path):
                                   "tiers": {"small": "p/m"}})
     assert isinstance(b, OpencodeBackend)
     assert b.config_home == tmp_path / "opencode"
+
+
+def test_dedicated_key_is_a_file_reference(backend, tmp_path):
+    key = tmp_path / "or.key"
+    key.write_text("sk-or-v1-secret\n")
+    backend.options["api_keys"] = {"openrouter": str(key)}
+    r = backend.run(req(tmp_path))
+    assert r.ok, r.error
+    assert r.data["conf"]["provider"] == {
+        "openrouter": {"options": {"apiKey": f"{{file:{key}}}"}}}
+    for f in (tmp_path / "a1").iterdir():
+        assert "sk-or-v1-secret" not in f.read_text()
+
+
+def test_missing_key_file_fails_without_fallback(backend, tmp_path):
+    empty = tmp_path / "empty.key"
+    empty.write_text("\n")
+    for path in (tmp_path / "absent.key", empty):
+        backend.options["api_keys"] = {"openrouter": str(path)}
+        r = backend.run(req(tmp_path))
+        assert not r.ok and r.error == (
+            f"missing API key file: openrouter: {path}")
+        assert not (tmp_path / "a1" / "pid").exists()  # never spawned

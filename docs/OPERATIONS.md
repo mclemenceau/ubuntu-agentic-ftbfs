@@ -240,7 +240,7 @@ After that, daily runs are incremental.
 `[agents] default_backend` in `config.toml` picks `claude` (`claude -p`,
 your Claude subscription or key) or `opencode` (`opencode run`, e.g. an
 OpenRouter key). The tier models are under `[backend.<name>.tiers]`.
-Check the key once with `opencode auth list`. Changing the backend
+Changing the backend
 re-runs the agent stages on the next run, so compare on a sample before
 switching a full run:
 
@@ -251,6 +251,21 @@ uv run ftbfs verdicts --sample-clusters 30 --seed 1
 
 The older backend's results stay in the database (`stage_result`), so
 both sets of verdicts can be compared there.
+
+### Dedicated OpenRouter key
+
+The opencode backend reads its OpenRouter key from
+`~/.config/ftbfs/openrouter.key` (`[backend.opencode] api_keys` in
+`config.toml`), not from your interactive opencode login:
+
+1. Create a key at <https://openrouter.ai/settings/keys> with a credit
+   limit: the limit is the hard cap on a runaway run, and the key's
+   activity page is the pipeline's bill.
+2. `install -m 600 /dev/null ~/.config/ftbfs/openrouter.key`, then paste
+   the key into it (one line).
+
+If the file is missing or empty, agent calls fail with "missing API key
+file" instead of using another key.
 
 ## Daily routine
 

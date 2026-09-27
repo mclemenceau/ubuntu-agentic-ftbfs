@@ -1,7 +1,11 @@
 """opencode headless backend: `opencode run --format json`.
 
-Models are `provider/model` ids (e.g. openrouter/anthropic/claude-haiku-4.5)
-and use the credentials opencode already has (`opencode auth login`).
+Models are `provider/model` ids (e.g. openrouter/anthropic/claude-haiku-4.5).
+Credentials come from `api_keys` ({provider: key file}) when set, so the
+pipeline's spend is kept apart from interactive use; the key is passed as
+a `{file:...}` reference and never appears in the config, transcripts or
+database. Providers without an entry use opencode's own credentials
+(`opencode auth login`).
 
 Calls are isolated from the user's interactive setup: a private config
 home (no global config, MCP servers, plugins or skills), no project
@@ -76,6 +80,19 @@ class OpencodeBackend(AgentBackend):
     native_schema = False
 
     @property
+    def key_files(self) -> dict[str, Path]:
+        return {provider: Path(path).expanduser().resolve()
+                for provider, path in
+                (self.options.get("api_keys") or {}).items()}
+
+    def missing_keys(self) -> list[str]:
+        """Key files that are absent or empty: never fall back silently
+        to the user's own credentials."""
+        return [f"{provider}: {path}"
+                for provider, path in self.key_files.items()
+                if not (path.is_file() and path.read_text().strip())]
+
+    @property
     def config_home(self) -> Path:
         # opencode keeps plugin dependencies in its config home, so it is
         # persistent (and private) rather than per call.
@@ -96,7 +113,7 @@ class OpencodeBackend(AgentBackend):
             agent["steps"] = req.max_turns
         providers = sorted({m.split("/", 1)[0]
                             for m in self.tiers.values() if m})
-        return {
+        conf = {
             "$schema": "https://opencode.ai/config.json",
             "autoupdate": False,
             "share": "disabled",
@@ -111,6 +128,11 @@ class OpencodeBackend(AgentBackend):
             "default_agent": AGENT,
             "agent": {AGENT: agent},
         }
+        if self.key_files:
+            conf["provider"] = {
+                provider: {"options": {"apiKey": f"{{file:{path}}}"}}
+                for provider, path in self.key_files.items()}
+        return conf
 
     def env(self, req: AgentRequest) -> dict[str, str]:
         env = {k: v for k, v in os.environ.items() if k not in _LEAKY_ENV}
@@ -133,6 +155,12 @@ class OpencodeBackend(AgentBackend):
 
     def run(self, req: AgentRequest) -> AgentResult:
         req.attempt_dir.mkdir(parents=True, exist_ok=True)
+        missing = self.missing_keys()
+        if missing:
+            return AgentResult(
+                False, "", None, Usage(), None, self.model_for(req.tier),
+                self.name, 0.0, req.attempt_dir / "transcript.jsonl",
+                "missing API key file: " + ", ".join(missing))
         self.config_home.mkdir(parents=True, exist_ok=True)
         (req.attempt_dir / "prompt.md").write_text(req.prompt)
         transcript = req.attempt_dir / "transcript.jsonl"

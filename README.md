@@ -155,9 +155,12 @@ input tokens of overhead instead of about 23k. Output is enforced with
 - `max_turns` (unset: the backend's own limit)
 
 The `opencode` backend runs `opencode run --format json` with models as
-`provider/model` ids (e.g. `openrouter/anthropic/claude-sonnet-5`) and
-the credentials opencode already has (`opencode auth login`). It is
-isolated the same way: a private config home under `state/opencode/`, no
+`provider/model` ids (e.g. `openrouter/anthropic/claude-sonnet-5`).
+`[backend.opencode] api_keys` points each provider at a dedicated key
+file, passed to opencode as a `{file:...}` reference so the key never
+lands in artifacts; a missing file is an error, never a fallback.
+Providers without an entry use opencode's own login. It is isolated the
+same way: a private config home under `state/opencode/`, no
 global or project config, MCP servers, plugins, skills or `~/.claude`
 rules. Each call gets one inline agent whose permissions are an explicit
 allowlist built from the stage's tool policy, and nothing outside the

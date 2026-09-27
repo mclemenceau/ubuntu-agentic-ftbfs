@@ -46,8 +46,13 @@ small = "haiku"
 medium = "sonnet"
 large = "opus"
 
-# opencode: provider/model ids, with the credentials opencode already has
-# (`opencode auth login`). Pinned versions keep runs reproducible.
+# opencode: provider/model ids. Pinned versions keep runs reproducible.
+# api_keys: a dedicated key file per provider (mode 600, one line), so
+# pipeline spend is separate from interactive use. A missing file is an
+# error; providers not listed use opencode's own `opencode auth` login.
+[backend.opencode]
+api_keys = { openrouter = "~/.config/ftbfs/openrouter.key" }
+
 [backend.opencode.tiers]
 small = "openrouter/anthropic/claude-haiku-4.5"
 medium = "openrouter/anthropic/claude-sonnet-5"

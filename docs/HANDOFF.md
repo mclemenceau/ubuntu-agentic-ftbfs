@@ -39,7 +39,8 @@ an investigation report, shown on a dashboard.
   - `opencode`: `opencode run --format json`, isolated the same way
     (private config home in `state/opencode/`, inline agent with an
     allowlist of permissions, nothing outside cwd). Tiers point at the
-    same Claude models through OpenRouter.
+    same Claude models through OpenRouter, billed to a dedicated key
+    (`~/.config/ftbfs/openrouter.key`, `api_keys` in config.toml).
   - `fake`: for tests.
 - **Observability:**
   - `event` table
