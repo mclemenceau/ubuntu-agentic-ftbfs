@@ -99,3 +99,13 @@ def test_structured_answer_survives_cli_error_flag(backend):
     assert r.ok and r.data == {"a": 1}
     final["structured_output"] = None
     assert not backend.parse_result(final, "m", 1.0, None).ok
+
+
+def test_api_error_is_reported(backend):
+    final = {"type": "result", "is_error": True, "subtype": "success",
+             "api_error_status": 429, "terminal_reason": "api_error",
+             "result": "You've hit your session limit", "usage": {}}
+    r = backend.parse_result(final, "m", 1.0, None)
+    assert not r.ok
+    assert r.error == ("success: API 429: api_error:"
+                       " You've hit your session limit")

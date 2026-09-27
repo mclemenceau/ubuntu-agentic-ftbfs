@@ -82,6 +82,25 @@ def diff_text(tree: Path, paths: list[str]) -> str:
                  "--dst-prefix=b/", "--", *paths], cwd=tree).stdout
 
 
+def edits(tree: Path) -> str:
+    """Everything changed since the baseline, as one diff: the agent's
+    raw edits, before they are turned into a patch and changelog."""
+    paths = changed_paths(tree)
+    if not paths:
+        return ""
+    _run(["git", "add", "-A", "-f"], cwd=tree)
+    return _run(["git", "diff", "--cached", "--binary", "--", *paths],
+                cwd=tree).stdout
+
+
+def apply_edits(tree: Path, diff: str) -> None:
+    """Replay earlier edits on a fresh tree, uncommitted, so they stay
+    part of this attempt's change."""
+    patch = tree.parent / "previous-edits.diff"
+    patch.write_text(diff)
+    _run(["git", "apply", "--whitespace=nowarn", str(patch)], cwd=tree)
+
+
 @dataclass
 class PatchMeta:
     name: str  # slug, without .patch

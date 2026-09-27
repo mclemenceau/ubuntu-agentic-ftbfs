@@ -153,8 +153,22 @@ class ClaudeBackend(AgentBackend):
             backend=self.name,
             duration_s=duration,
             transcript_path=transcript,
-            error=(final.get("subtype") or "error") if is_error else None,
+            error=_error_text(final) if is_error else None,
         )
+
+
+def _error_text(final: dict) -> str:
+    """The CLI reports API failures (429 rate limit, ...) with subtype
+    "success"; the status and message are what explain them."""
+    parts = [final.get("subtype") or "error"]
+    if final.get("api_error_status"):
+        parts.append(f"API {final['api_error_status']}")
+    if final.get("terminal_reason"):
+        parts.append(final["terminal_reason"])
+    msg = (final.get("result") or "").strip()
+    if msg:
+        parts.append(msg[:300])
+    return ": ".join(parts)
 
 
 def _kill(proc: subprocess.Popen) -> None:

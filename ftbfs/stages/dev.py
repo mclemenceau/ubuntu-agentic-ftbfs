@@ -17,6 +17,7 @@ from ..prompts import load
 
 MAX_REFERENCE = 4000
 MAX_EXCERPT = 6000
+EDITS = "edits.diff"
 
 SCHEMA = {
     "type": "object",
@@ -80,6 +81,19 @@ def reference_fix(ctx, uid: str) -> dict | None:
     return None
 
 
+def previous_edits(ctx, uid: str) -> str | None:
+    """The raw edits of the latest successful dev attempt. They sit next
+    to its debdiff (attempts made before edits were saved have none)."""
+    row = ctx.db.one(
+        "SELECT data FROM stage_result WHERE unit_id=? AND stage='dev'"
+        " AND status='ok' ORDER BY id DESC LIMIT 1", (uid,))
+    if row is None:
+        return None
+    debdiff = json.loads(row["data"]).get("debdiff")
+    return _read(Path(debdiff).with_name(EDITS), 10**7) if debdiff \
+        else None
+
+
 @register
 class DevStage(Stage):
     name = "dev"
@@ -120,11 +134,14 @@ class DevStage(Stage):
         feedback = ctx.feedback(uid)
         if feedback:
             last = feedback[-1]["data"]
-            prev = ctx.result(uid, "dev") or {}
-            prev_patch = _read(prev.get("debdiff"), MAX_REFERENCE)
+            prev = previous_edits(ctx, uid)
             pack["retry"] = {
                 "attempt": len(feedback) + 1,
-                "previous_change": prev_patch,
+                "note": "The source tree already contains your previous"
+                        " change (previous_change). Keep what is still"
+                        " needed and fix the new build failure on top"
+                        " of it.",
+                "previous_change": (prev or "")[:MAX_REFERENCE] or None,
                 "build_result": last.get("outcome"),
                 "new_key_lines": last.get("key_lines"),
                 "new_excerpt": (last.get("excerpt") or "")[:MAX_EXCERPT],
@@ -138,6 +155,11 @@ class DevStage(Stage):
         dsc = local.fetch_source(item["source"], item["version"],
                                  ctx.paths.cache / "sources")
         tree = srcpkg.unpack(dsc, adir / "tree")
+        # A retry builds on the previous attempt, so fixes accumulate
+        # instead of each attempt starting over from the original.
+        prev = previous_edits(ctx, uid) if ctx.feedback(uid) else None
+        if prev:
+            srcpkg.apply_edits(tree, prev)
         res = ctx.run_agent(
             uid, json.dumps(self._context(ctx, uid), indent=1),
             output_schema=SCHEMA, system=prompt.text, cwd=tree,
@@ -152,6 +174,8 @@ class DevStage(Stage):
         if not changed:
             return StageResult(uid, Status.NEEDS_HUMAN, {
                 **meta, "reason": "agent made no changes"})
+        edits = adir / EDITS
+        edits.write_text(srcpkg.edits(tree))
         name, email = _identity(ctx)
         patch = srcpkg.record_upstream_changes(tree, srcpkg.PatchMeta(
             name=meta["patch_name"],
@@ -182,7 +206,7 @@ class DevStage(Stage):
             "new_dsc": str(new_dsc),
             "debdiff": str(debdiff),
             "debdiff_lines": len(debdiff.read_text().splitlines()),
-        }, [str(debdiff), str(new_dsc)])
+        }, [str(debdiff), str(new_dsc), str(edits)])
 
 
 def _first_sentence(meta: dict) -> str:

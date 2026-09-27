@@ -109,11 +109,14 @@ def env(db, tmp_path, monkeypatch):
 
 
 def agent(req):
-    """Edit the tree like a real agent would; improve on retry."""
+    """Edit the tree like a real agent would; on retry, add a second fix
+    on top of the first one, which must still be in the tree."""
     main = req.cwd / "src" / "main.c"
-    retry = '"retry"' in req.prompt
-    main.write_text("const char *name = \"x\";\n" +
-                    ("/* retried */\n" if retry else ""))
+    if '"retry"' in req.prompt:
+        assert main.read_text().startswith("const char")
+        (req.cwd / "src" / "extra.h").write_text("int extra(void);\n")
+    else:
+        main.write_text("const char *name = \"x\";\n")
     return {"summary": "Fix FTBFS with GCC 15 (const string).",
             "patch_name": "gcc 15 const name",
             "patch_description": "Make name const. Needed with GCC 15.",
@@ -164,7 +167,10 @@ def test_dev_verify_loop_until_it_builds(env, monkeypatch):
     patch = Path(dev["patch_file"]).read_text()
     assert patch.startswith("Description: Make name const.")
     assert "Author: Test Dev <dev@example.org>" in patch
+    # the retry kept the first fix and added the second: one patch
     assert "+const char *name" in patch
+    assert "+int extra(void);" in patch
+    assert dev["files_changed"] == ["src/extra.h", "src/main.c"]
     debdiff = Path(dev["debdiff"]).read_text()
     assert "tinypkg (1.0-1ubuntu1) stonking" in debdiff
     assert "XSBC-Original-Maintainer: Someone" in debdiff  # first delta
