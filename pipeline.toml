@@ -34,7 +34,7 @@ agent = { tier = "small", max_budget_usd = 0.5 }
 [stage.diagnose]
 after = ["triage"]
 when = "triage.fixable != 'no' and triage.action in ['patch', 'investigate', 'report-upstream', 'restrict-arch']"
-agent = { tier = "medium", effort = "medium", max_budget_usd = 1.0 }
+agent = { tier = "medium", effort = "high", max_budget_usd = 1.0 }
 
 # Rebuild the failing version and compare with Launchpad (0 tokens).
 # Human-gated: `ftbfs approve reproduce <source|item>`.

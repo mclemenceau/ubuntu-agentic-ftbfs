@@ -38,7 +38,7 @@ build = 2
 outward = 1
 
 [agents]
-default_backend = "claude"
+default_backend = "opencode"
 
 # Stages ask for a tier; each backend maps tiers to its own models.
 [backend.claude.tiers]
