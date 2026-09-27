@@ -1,0 +1,18 @@
+# The pipeline DAG. Each [stage.<name>] must be a registered stage
+# (`ftbfs stages` lists them). Keys:
+#   after   = [...]      dependencies that must be ok
+#   when    = "expr"     predicate over upstream results, e.g.
+#                        "triage.fixable != 'no' and item.arch == 'amd64'"
+#   gate    = "manual"   wait for approval (forced for outward stages)
+#   enabled = false      keep the block but skip the stage
+#   agent   = { backend = "claude", tier = "medium", max_turns = 30,
+#               escalate_after_loops = 1, escalate_tier = "large" }
+#   on_fail = { goto = "<upstream stage>", max_loops = 2 }
+#   any other key is passed to the stage as an option.
+#
+# Stages are enabled here milestone by milestone as they are implemented.
+# Target default pipeline:
+#
+#   excerpt -> classify -> cluster -> facts -> triage -> diagnose
+#     -> confirm -> [gate] reproduce -> dev -> verify
+#     -> adversarial_review (on_fail: dev) -> [gate] lp_file_bug

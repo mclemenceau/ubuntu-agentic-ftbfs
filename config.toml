@@ -1,0 +1,53 @@
+# ftbfs review pipeline configuration
+
+source_url = "http://qa.ubuntuwire.com/ftbfs/"
+
+[paths]
+state = "state"      # SQLite DB + snapshot JSON
+cache = "cache"      # downloaded build logs, source trees
+work = "work"        # per-item artifacts, investigation.md
+plugins = "plugins"  # local stage plugins (*.py)
+pipeline = "pipeline.toml"
+
+# Default selection. CLI flags override; --profile applies a named set.
+# States accept codes: F (FAILEDTOBUILD), M (MANUALDEPWAIT),
+# X (CANCELLED), U (UPLOADFAIL), C (CHROOTWAIT).
+[filter]
+components = ["universe"]
+states = ["F"]
+arches = []          # empty = all
+pockets = []         # release, proposed; empty = both
+skip_lp_bug = true   # skip packages ubuntuwire lists an LP bug for
+
+[filter.profiles.main]
+components = ["main", "restricted"]
+
+[filter.profiles.amd64]
+arches = ["amd64"]
+
+[filter.profiles.everything]
+components = []
+states = []
+skip_lp_bug = false
+
+# Max concurrent units per stage kind (laptop defaults).
+[concurrency]
+deterministic = 8
+agent = 4
+build = 2
+outward = 1
+
+[agents]
+default_backend = "claude"
+
+# Stages ask for a tier; each backend maps tiers to its own models.
+[backend.claude.tiers]
+small = "haiku"
+medium = "sonnet"
+large = "opus"
+
+[backend.opencode.tiers]
+# Filled in when the opencode backend lands (provider/model ids).
+small = ""
+medium = ""
+large = ""
