@@ -312,22 +312,38 @@ class Scheduler:
         ctx.event("stage_start", units=len(ready), batches=len(batches))
         counts: dict[str, int] = {}
         workers = self.concurrency[spec.stage.kind]
+        cancelled = False
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {}
-            for batch in batches:
-                self._check_control()
-                for u in batch:
-                    ctx.event("unit_start", unit=u, attempt=attempts[u])
-                futures[pool.submit(self._run_batch, ctx, batch)] = batch
+            futures = [pool.submit(self._run_batch, ctx, batch, attempts)
+                       for batch in batches]
             for fut in as_completed(futures):
-                for res in fut.result():
+                results = fut.result()
+                if results is None:
+                    cancelled = True
+                    continue
+                for res in results:
                     self._record(spec, ctx, res, hashes[res.unit_id],
                                  attempts[res.unit_id])
                     counts[res.status] = counts.get(res.status, 0) + 1
-        ctx.event("stage_end", counts=counts)
+        ctx.event("stage_end", counts=counts,
+                  **({"cancelled": True} if cancelled else {}))
+        if cancelled:
+            raise Cancelled()
         return counts
 
-    def _run_batch(self, ctx: Context, batch: list[str]) -> list:
+    def _run_batch(self, ctx: Context, batch: list[str],
+                   attempts: dict[str, int]) -> list | None:
+        """Results for one batch, or None when the run was cancelled
+        before it started. Pause and cancel are checked here, when a
+        worker picks the batch up, because a stage queues all of its
+        batches at once: units already running finish and are
+        recorded, queued ones never start."""
+        try:
+            self._check_control()  # blocks while paused
+        except Cancelled:
+            return None
+        for u in batch:
+            ctx.event("unit_start", unit=u, attempt=attempts[u])
         try:
             results = ctx.stage.run(ctx, batch)
             by_unit = {r.unit_id: r for r in results}

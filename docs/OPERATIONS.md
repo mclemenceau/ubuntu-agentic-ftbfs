@@ -345,7 +345,7 @@ file" instead of using another key.
 
 | Situation | Action |
 |---|---|
-| Stop a run cleanly | `ftbfs control cancel` (or the Run page) |
+| Stop a run cleanly | `ftbfs control cancel` (or the Run page). Units already running finish; queued ones never start. |
 | Hold a run while you look | `ftbfs control pause`, then `resume` |
 | Runaway agent | Kill button on the Console page |
 | Bad result to redo | `ftbfs retry <stage> <unit>`, then `ftbfs run` |

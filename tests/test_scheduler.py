@@ -2,6 +2,7 @@
 backend: zero tokens, no network."""
 
 import json
+import time
 
 import pytest
 
@@ -236,6 +237,28 @@ def test_cancel(db, units, tmp_path):
               run_id=run_id)
     with pytest.raises(Cancelled):
         s.run()
+
+
+def test_cancel_mid_stage_stops_queued_units(db, units, tmp_path):
+    run_id = db.execute(
+        "INSERT INTO run (started, status, filter, pipeline_hash, trigger)"
+        " VALUES ('t', 'running', '{}', 'h', 'test')").lastrowid
+
+    def first_cancels(ctx, uid):
+        time.sleep(0.2)  # the stage has queued every unit by now
+        db.execute("UPDATE run SET control='cancel' WHERE id=?", (run_id,))
+        return {}
+
+    registry = {"a": make_stage("a", fn=first_cancels)}
+    pipeline = build({"stage": {"a": {}}}, registry, default_backend="fake")
+    s = Scheduler(db, pipeline, units, {"fake": FakeBackend()},
+                  Paths(tmp_path, tmp_path / "work", tmp_path / "cache"),
+                  {"deterministic": 1}, run_id=run_id)
+    with pytest.raises(Cancelled):
+        s.run()
+    assert len(calls("a")) == 1  # the other 4 never start
+    started = db.query("SELECT unit FROM event WHERE type='unit_start'")
+    assert len(started) == 1
 
 
 SCHEMA = {
