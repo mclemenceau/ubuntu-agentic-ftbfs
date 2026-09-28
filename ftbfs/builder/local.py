@@ -17,6 +17,12 @@ from pathlib import Path
 ARTIFACT_SUFFIXES = (".deb", ".ddeb", ".udeb", ".changes", ".buildinfo")
 
 
+POLL_S = 5.0
+# Launchpad itself gives up after 150 minutes without output; half an
+# hour of silence is already a hang for nearly every package.
+IDLE_TIMEOUT = 30 * 60
+
+
 @dataclass
 class LocalBuild:
     ok: bool  # dpkg-buildpackage succeeded
@@ -24,6 +30,7 @@ class LocalBuild:
     log: Path | None
     duration_s: float
     timed_out: bool = False
+    stalled: bool = False  # killed because its output stopped growing
 
 
 def fetch_source(source: str, version: str, cache_dir: Path) -> Path:
@@ -57,9 +64,19 @@ def sbuild_command(dsc: Path, arch: str, dist: str,
     return cmd
 
 
+def _output_size(build_dir: Path) -> int:
+    return sum(p.stat().st_size for p in (*build_dir.glob("*.build"),
+                                          build_dir / "sbuild.out")
+               if p.exists() and not p.is_symlink())
+
+
 def build(dsc: Path, arch: str, dist: str, build_dir: Path,
           extra_repos: list[str] | None = None, parallel: int = 8,
-          timeout: int = 4 * 3600) -> LocalBuild:
+          timeout: int = 4 * 3600,
+          idle_timeout: int = IDLE_TIMEOUT) -> LocalBuild:
+    """sbuild the .dsc. It is killed after `timeout` seconds, or once
+    its log has not grown for `idle_timeout` seconds: a hung test
+    suite would otherwise hold a build slot for the whole timeout."""
     build_dir.mkdir(parents=True, exist_ok=True)
     cmd = sbuild_command(dsc, arch, dist, extra_repos or [])
     (build_dir / "command.txt").write_text(" ".join(cmd) + "\n")
@@ -70,13 +87,23 @@ def build(dsc: Path, arch: str, dist: str, build_dir: Path,
                                 stderr=subprocess.STDOUT, env=env,
                                 start_new_session=True)
         (build_dir / "pid").write_text(str(proc.pid))
-        timed_out = False
-        try:
-            proc.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            os.killpg(proc.pid, signal.SIGKILL)
-            proc.wait()
+        timed_out = stalled = False
+        size, grew = -1, start
+        while True:
+            try:
+                proc.wait(timeout=POLL_S)
+                break
+            except subprocess.TimeoutExpired:
+                pass
+            t = time.monotonic()
+            if (new := _output_size(build_dir)) != size:
+                size, grew = new, t
+            stalled = t - grew >= idle_timeout
+            if stalled or t - start >= timeout:
+                timed_out = True
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.wait()
+                break
     duration = time.monotonic() - start
     logs = sorted(p for p in build_dir.glob("*.build") if not p.is_symlink())
     for p in build_dir.iterdir():
@@ -90,4 +117,5 @@ def build(dsc: Path, arch: str, dist: str, build_dir: Path,
         log=logs[-1] if logs else None,
         duration_s=duration,
         timed_out=timed_out,
+        stalled=stalled,
     )

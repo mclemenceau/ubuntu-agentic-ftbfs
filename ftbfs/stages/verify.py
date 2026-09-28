@@ -45,7 +45,9 @@ class VerifyStage(Stage):
                 adir / "build", extra_repositories(item["component"],
                                                    series),
                 parallel=ctx.options.get("parallel", 8),
-                timeout=ctx.options.get("timeout", 4 * 3600))
+                timeout=ctx.options.get("timeout", 4 * 3600),
+                idle_timeout=ctx.options.get("idle_timeout",
+                                             local.IDLE_TIMEOUT))
             ctx.event("build_end", unit=uid, ok=b.ok,
                       duration_s=round(b.duration_s))
             base = {"version": dev.get("version"),
@@ -54,6 +56,13 @@ class VerifyStage(Stage):
             if b.ok:
                 out.append(StageResult(uid, Status.OK, {
                     **base, "outcome": outcome.BUILT}))
+                continue
+            if b.timed_out:
+                # A hang is no feedback the dev agent can act on.
+                out.append(StageResult(uid, Status.NEEDS_HUMAN, {
+                    **base, "outcome": "timeout", "stalled": b.stalled,
+                    "reason": "build stalled" if b.stalled
+                    else "build timed out"}))
                 continue
             ex = extract(b.log.read_text(errors="replace")) if b.log \
                 else None

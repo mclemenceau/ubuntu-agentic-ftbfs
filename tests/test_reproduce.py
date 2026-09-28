@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from ftbfs.builder import outcome
+from ftbfs.builder import local, outcome
 from ftbfs.builder.local import sbuild_command
 from ftbfs.core.context import Paths, Units
 from ftbfs.core.pipeline import build
@@ -201,3 +201,33 @@ def test_judge_infra_when_no_log():
     rules = RuleSet.load(ROOT / "rules.toml")
     verdict, _ = outcome.judge(False, None, {}, rules, "p")
     assert verdict == outcome.INFRA
+
+
+QUIET_SBUILD = """#!/bin/sh
+dsc=$(eval echo \\${$#})
+log="$(basename "$dsc" .dsc)_amd64.build"
+i=0
+while [ $i -lt "$CHATTY_TICKS" ]; do  # output keeps growing
+  echo "compiling $i" >> "$log"; i=$((i + 1)); sleep 0.2
+done
+[ -n "$HANG" ] && sleep 30  # a hung test suite: no more output
+exit 0
+"""
+
+
+@pytest.mark.parametrize("hang", [True, False])
+def test_build_killed_when_its_log_stops_growing(tmp_path, monkeypatch,
+                                                 hang):
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    exe = bindir / "sbuild"
+    exe.write_text(QUIET_SBUILD)
+    exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("PATH", f"{bindir}:{shutil.os.environ['PATH']}")
+    monkeypatch.setenv("CHATTY_TICKS", "8")  # 1.6 s of steady output
+    monkeypatch.setenv("HANG", "1" if hang else "")
+    monkeypatch.setattr(local, "POLL_S", 0.1)
+    b = local.build(tmp_path / "p_1.dsc", "amd64", "d", tmp_path / "b",
+                    timeout=60, idle_timeout=1)
+    assert b.stalled is hang and b.timed_out is hang and b.ok is not hang
+    assert b.duration_s < 5  # not the 30 s hang, nor the 60 s timeout

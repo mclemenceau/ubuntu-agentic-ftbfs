@@ -99,6 +99,8 @@ class ReproduceStage(Stage):
             extra_repositories(item["component"], series),
             parallel=ctx.options.get("parallel", 8),
             timeout=ctx.options.get("timeout", 4 * 3600),
+            idle_timeout=ctx.options.get("idle_timeout",
+                                         local.IDLE_TIMEOUT),
         )
         ctx.event("build_end", unit=uid, ok=b.ok, exit=b.exit_code,
                   duration_s=round(b.duration_s))
@@ -107,7 +109,8 @@ class ReproduceStage(Stage):
                 "log": str(b.log) if b.log else None}
         if b.timed_out:
             return StageResult(uid, Status.OK,
-                               {**base, "outcome": "timeout"})
+                               {**base, "outcome": "timeout",
+                                "stalled": b.stalled})
         ex = extract(b.log.read_text(errors="replace")) if b.log else None
         verdict, details = outcome.judge(b.ok, ex, original, rules,
                                          item["source"])

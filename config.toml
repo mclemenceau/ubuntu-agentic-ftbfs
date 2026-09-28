@@ -34,7 +34,7 @@ skip_lp_bug = false
 [concurrency]
 deterministic = 8
 agent = 4
-build = 2
+build = 4
 outward = 1
 
 [agents]
