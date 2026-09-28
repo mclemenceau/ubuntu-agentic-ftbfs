@@ -14,7 +14,7 @@
 # Target default pipeline:
 #
 #   excerpt -> classify (+cluster) -> facts -> triage -> diagnose
-#     -> confirm -> [gate] reproduce -> dev -> verify
+#     -> confirm -> reproduce -> [gate] dev -> verify
 #     -> adversarial_review (on_fail: dev) -> [gate] lp_file_bug
 
 [stage.excerpt]
@@ -37,11 +37,11 @@ when = "triage.fixable != 'no' and triage.action in ['patch', 'investigate', 're
 agent = { tier = "medium", effort = "high", max_budget_usd = 1.0 }
 
 # Rebuild the failing version and compare with Launchpad (0 tokens).
-# Human-gated: `ftbfs approve reproduce <source|item>`.
+# Not gated: local sbuild is free and has no outside effect. Setting
+# `ppa` uploads to Launchpad, so add `gate = "manual"` back with it.
 [stage.reproduce]
 after = ["excerpt", "triage"]
 when = "triage.action in ['patch', 'investigate', 'report-upstream']"
-gate = "manual"
 local_arches = ["amd64"]
 parallel = 8
 # ppa = "<lp-user>/ftbfs-repro"   # enables other arches via Launchpad

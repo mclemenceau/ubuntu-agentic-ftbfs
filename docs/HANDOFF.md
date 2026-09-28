@@ -232,7 +232,8 @@ Steps, in order:
 3. **Zero-token wins:** list the 35 sync and 6 merge clusters, already
    decided by the Debian facts.
 4. **Reproduce the 69 low-risk patch packages** (local sbuild, free).
-   Decide then whether to drop the manual gate on local reproduce.
+   **Done:** the manual gate on local reproduce is dropped (a gate
+   comes back with `ppa`, which uploads to Launchpad).
 5. **Dev + verify on a batch of 15 to 20.** Measure the fix rate and
    cost per verified fix before going wider. Build the M8
    `adversarial_review` stage before trusting dozens of debdiffs

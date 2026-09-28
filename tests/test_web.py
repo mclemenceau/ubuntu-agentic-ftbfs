@@ -75,7 +75,7 @@ def project(tmp_path_factory):
         "notes": "", "debdiff": str(debdiff), "debdiff_lines": 1})
     result(app, iid, "verify", "ok", {"outcome": "built",
                                       "version": ver + "ubuntu1"})
-    app.db.execute("INSERT INTO gate VALUES (?, 'reproduce', 'pending',"
+    app.db.execute("INSERT INTO gate VALUES (?, 'dev', 'pending',"
                    " NULL, NULL, ?)", (iid, now()))
     # an agent in flight in the running run
     adir = app.config.work_dir / src / ver / "amd64" / "dev" / "attempt-2"
@@ -107,7 +107,7 @@ def test_report_stitches_stage_partials(project):
     assert "````\nboom ``` fence\n````" in text  # fence cannot break
     assert "a \\| b" in text  # table cell escaped
     assert "+fixed line" in text  # debdiff embedded
-    assert "Review the reproduce gate" in text
+    assert "Review the dev gate" in text
 
 
 def test_plugin_partial_overrides_builtin(project, tmp_path):
@@ -164,10 +164,10 @@ def test_live_run_shows_agent_in_flight(project):
 def test_gate_decision_from_ui(client, project):
     app, iid = project["app"], project["iid"]
     r = client.post("/gates/decide", headers=HX, data={
-        "stage": "reproduce", "unit": iid, "decision": "approved"})
+        "stage": "dev", "unit": iid, "decision": "approved"})
     assert r.status_code == 200 and "approved" in r.text
     gate = app.db.one("SELECT * FROM gate WHERE unit_id=? AND"
-                      " stage='reproduce'", (iid,))
+                      " stage='dev'", (iid,))
     assert gate["decision"] == "approved" and gate["by"] == "web"
     assert app.db.one("SELECT 1 FROM event WHERE type='gate_approved'"
                       " AND unit=?", (iid,))

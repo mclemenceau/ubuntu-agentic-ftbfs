@@ -31,7 +31,7 @@ ingest
 excerpt -> classify --+
                       +--> triage --> diagnose ----------+
 facts ----------------+      |                           v
-                             +--> [gate] reproduce --> [gate] dev
+                             +--> reproduce --> [gate] dev
                                                           ^   |
                                                      fail |   v
                                                           +- verify
@@ -145,10 +145,10 @@ All fields are length-bounded to keep output tokens down.
 - **Tokens:** about $0.05 per cluster
 - **Re-runs:** when `prompts/diagnose.md` or triage changes
 
-### reproduce (item, build, manual gate)
+### reproduce (item, build)
 
-Offered when triage's action is patch, investigate or report-upstream.
-After `ftbfs approve reproduce <src>`, it rebuilds the failing version
+Runs when triage's action is patch, investigate or report-upstream. It
+is not gated, since a local build is free: it rebuilds the failing version
 with your local sbuild against `<series>-proposed`, then compares the
 result with the Launchpad failure:
 
@@ -218,7 +218,7 @@ Not implemented yet (see `docs/HANDOFF.md`):
 | Cadence | Command | Notes |
 |---|---|---|
 | Daily | `ftbfs run --ingest` | New snapshot, then excerpt, classify, facts, triage and diagnose on new or changed items. Tokens are spent only on new clusters. |
-| After approving gates | `ftbfs run` | Runs the approved reproduce, dev and verify units. |
+| After approving gates | `ftbfs run` | Runs the approved dev units and their verify. |
 | After editing `rules.toml` or `prompts/*.md` | `ftbfs run --sample-clusters 30 --seed 1`, then a full `run` | An edit re-runs only the affected stage and what follows it. |
 | Start of a review cycle | `ftbfs report` | Regenerates `work/<src>/<ver>/investigation.md` (no tokens). |
 
@@ -274,10 +274,9 @@ file" instead of using another key.
    equivalents:
    - **Overview:** the snapshot delta (new, regressed, gone). New
      regressions are the most useful signal.
-   - **Gates:** reproduce and dev wait for you. Approve the ones whose
-     triage and diagnosis look right:
-     `ftbfs approve reproduce <src>`, then after the next run
-     `ftbfs approve dev <src>`. Reject with
+   - **Gates:** dev waits for you once reproduce has confirmed the
+     failure. Approve the ones whose triage, diagnosis and reproduce
+     look right: `ftbfs approve dev <src>`. Reject with
      `--reject --note "reason"`.
    - **Attention:** errors, needs-human results and exhausted verify
      loops. `ftbfs why <src>` explains why a unit is stuck.
