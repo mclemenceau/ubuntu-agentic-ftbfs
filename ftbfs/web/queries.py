@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from ..core.pipeline import Pipeline
-from ..db import DB
+from ..db import DB, PENDING_GATES, live
 
 # The latest result per (unit, stage): what the pipeline currently thinks.
 LATEST = """
@@ -35,8 +35,8 @@ def stage_counts(db: DB) -> dict[str, dict[str, int]]:
     for r in db.query(f"SELECT stage, status, COUNT(*) AS n FROM ({LATEST})"
                       " GROUP BY stage, status"):
         out.setdefault(r["stage"], {})[r["status"]] = r["n"]
-    for r in db.query("SELECT stage, COUNT(*) AS n FROM gate"
-                      " WHERE decision='pending' GROUP BY stage"):
+    for r in db.query("SELECT stage, COUNT(*) AS n FROM"
+                      f" ({PENDING_GATES}) GROUP BY stage"):
         out.setdefault(r["stage"], {})["gate"] = r["n"]
     return out
 
@@ -133,8 +133,8 @@ def run_state(db: DB, run_id: int) -> dict:
         "pending_polls": db.one(
             f"SELECT COUNT(*) AS n FROM ({LATEST}) WHERE status='pending'"
         )["n"],
-        "gates": db.one("SELECT COUNT(*) AS n FROM gate"
-                        " WHERE decision='pending'")["n"],
+        "gates": db.one(f"SELECT COUNT(*) AS n FROM ({PENDING_GATES})"
+                        )["n"],
     }
 
 
@@ -231,15 +231,16 @@ def signal_counts(facts_by_source: dict[str, dict]) -> dict[str, int]:
 
 # -- gates and attention -------------------------------------------------
 
-def gates(db: DB, decision: str = "pending", limit: int = 500) -> list:
-    return db.query("SELECT * FROM gate WHERE decision=? ORDER BY stage,"
-                    " ts DESC LIMIT ?", (decision, limit))
+def gates(db: DB, limit: int = 500) -> list:
+    return db.query(f"SELECT * FROM ({PENDING_GATES}) ORDER BY stage,"
+                    " ts DESC LIMIT ?", (limit,))
 
 
 def attention(db: DB) -> dict:
     problems = db.query(
-        f"SELECT * FROM ({LATEST}) WHERE status IN"
-        f" ({','.join('?' * len(PROBLEMS))}) ORDER BY ts DESC", PROBLEMS)
+        f"SELECT * FROM ({LATEST}) AS r WHERE status IN"
+        f" ({','.join('?' * len(PROBLEMS))}) AND {live('r.unit_id')}"
+        " ORDER BY ts DESC", PROBLEMS)
     exhausted = db.query(
         "SELECT * FROM event WHERE type='loop_exhausted' ORDER BY id DESC"
         " LIMIT 100")

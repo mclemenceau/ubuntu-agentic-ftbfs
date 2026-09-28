@@ -105,8 +105,9 @@ def build(core: App, flt: Filter) -> dict:
     human = []
     for r in fails:
         it = others.get(r["unit_id"])
-        if disposed(it) or r["unit_id"] in ready.get("dev", ()) or (
-                it and (it["source"], it["version"]) in review):
+        if it is None or it["lifecycle"] == "gone" or disposed(it) or \
+                r["unit_id"] in ready.get("dev", ()) or \
+                (it["source"], it["version"]) in review:
             continue
         human.append({"stage": "verify", "unit": r["unit_id"],
                       "retry": "dev", "why": "the automated fix does not"

@@ -20,7 +20,7 @@ from .core.pipeline import Pipeline
 from .core.pipeline import load as load_pipeline
 from .core.scheduler import Cancelled, Scheduler
 from .core.stage import discover
-from .db import DB, now
+from .db import DB, PENDING_GATES, now
 from .filters import Filter, all_items, select
 from .ingest import fetch, parse, read_html
 from .inventory import Diff, save_snapshot, store
@@ -281,8 +281,8 @@ class App:
         for target in targets:
             if spec.stage.unit == "item" and "/" not in target:
                 waiting = [r["unit_id"] for r in self.db.query(
-                    "SELECT unit_id FROM gate WHERE stage=? AND"
-                    " decision='pending' AND unit_id LIKE ?",
+                    f"SELECT unit_id FROM ({PENDING_GATES}) WHERE"
+                    " stage=? AND unit_id LIKE ?",
                     (stage, f"{target}/%"))]
                 units += waiting or [r["id"] for r in self.db.query(
                     "SELECT id FROM item WHERE source=? AND"

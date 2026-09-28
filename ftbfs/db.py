@@ -129,6 +129,20 @@ SCHEMA = [
 ]
 
 
+def live(col: str) -> str:
+    """SQL predicate: the unit id in `col` (an item, source or cluster)
+    still has an item listed as failing. Results and gates of gone units
+    stay recorded but no longer ask anything of a human."""
+    return ("EXISTS (SELECT 1 FROM item WHERE lifecycle != 'gone' AND"
+            f" {col} IN (item.id, item.source, item.cluster_id))")
+
+
+# Gates waiting for a decision, on units that are still failing.
+PENDING_GATES = (
+    "SELECT * FROM gate WHERE decision='pending' AND "
+    + live("gate.unit_id"))
+
+
 def now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 

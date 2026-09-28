@@ -35,6 +35,7 @@ from markupsafe import Markup
 from ..agents.base import running_pid
 from ..app import DISPOSITIONS, App
 from ..core.stage import UnitType
+from ..db import PENDING_GATES
 from ..facts.derive import SIGNALS
 from ..report import Result, Section
 from . import nextsteps, transcript
@@ -99,8 +100,8 @@ def create_app(root: Path, loopback_only: bool = True) -> FastAPI:
 
     def page(request: Request, name: str, **ctx) -> HTMLResponse:
         return tpl.TemplateResponse(request, name, {
-            "nav_gates": core.db.one("SELECT COUNT(*) AS n FROM gate WHERE"
-                                     " decision='pending'")["n"],
+            "nav_gates": core.db.one("SELECT COUNT(*) AS n FROM"
+                                     f" ({PENDING_GATES})")["n"],
             "nav_attention": len(q.attention(core.db)["problems"]),
             "running": core.db.one("SELECT id FROM run WHERE"
                                    " status='running' ORDER BY id DESC"

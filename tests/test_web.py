@@ -1,6 +1,7 @@
 """Report, read models and web UI over a small seeded project."""
 
 import json
+import re
 import shutil
 from pathlib import Path
 from urllib.parse import quote
@@ -301,3 +302,48 @@ def test_kill_agent_only_kills_its_own_process(project):
         app.kill_agent(adir, "test")
     with pytest.raises(ValueError):
         app.kill_agent(Path("/tmp"), "test")
+
+
+def test_gone_items_leave_gates_and_inbox(tmp_path, capsys):
+    """A unit that stops failing drops out of every place that asks a
+    human for something, while its gate and results stay recorded."""
+    from ftbfs.cli import cmd_status
+    from ftbfs.web import nextsteps
+
+    shutil.copy(ROOT / "pipeline.toml", tmp_path)
+    shutil.copy(ROOT / "config.toml", tmp_path)
+    app = App(tmp_path)
+    snap = parse(read_html(FIXTURE), fetched_at="2026-09-27T00:00:00+00:00")
+    store(app.db, snap, save_snapshot(snap, app.config.snapshots_dir))
+    gone, kept = [dict(r) for r in app.db.query(
+        "SELECT * FROM item WHERE arch='amd64' GROUP BY source"
+        " ORDER BY id LIMIT 2")]
+    for it in (gone, kept):
+        app.db.execute("INSERT INTO gate VALUES (?, 'dev', 'pending',"
+                       " NULL, NULL, ?)", (it["id"], now()))
+        result(app, it["id"], "verify", "fail",
+               {"key_lines": [f"{it['source']} still broken"]})
+        result(app, it["id"], "excerpt", "error", {"error": "boom"})
+    app.db.execute("UPDATE item SET lifecycle='gone' WHERE id=?",
+                   (gone["id"],))
+
+    assert [g["unit_id"] for g in q.gates(app.db)] == [kept["id"]]
+    assert q.stage_counts(app.db)["dev"]["gate"] == 1
+    assert [r["unit_id"] for r in q.attention(app.db)["problems"]] == \
+        [kept["id"]]
+    human = nextsteps.build(app, app.config.make_filter())["human"]
+    assert {h["unit"] for h in human} == {kept["id"]}
+
+    page = TestClient(create_app(tmp_path)).get("/gates").text
+    assert kept["id"] in page and gone["id"] not in page
+    assert '<a href="/gates">Gates<span class="count">1</span>' in page
+
+    cmd_status(app, None)
+    assert re.search(r"waiting for approval:\n\s+dev\s+1\n",
+                     capsys.readouterr().out)
+
+    # approving by source name does not pick up the gone item's gate
+    assert gone["id"] not in app.approve("dev", [gone["source"]],
+                                         "approved", "t")
+    assert app.db.one("SELECT decision FROM gate WHERE unit_id=?",
+                      (gone["id"],))["decision"] == "pending"

@@ -10,6 +10,7 @@ from collections import Counter
 from pathlib import Path
 
 from .app import App
+from .db import PENDING_GATES
 
 
 def _filter_args(p: argparse.ArgumentParser) -> None:
@@ -366,7 +367,7 @@ def cmd_status(app: App, a) -> None:
             cost = f"  ${r['cost']:.3f}" if r["cost"] else ""
             print(f"  {r['stage']:22} {r['status']:12} {r['n']:6}{cost}")
     gates = app.db.query(
-        "SELECT stage, COUNT(*) AS n FROM gate WHERE decision='pending'"
+        f"SELECT stage, COUNT(*) AS n FROM ({PENDING_GATES})"
         " GROUP BY stage")
     if gates:
         print("\nwaiting for approval:")
