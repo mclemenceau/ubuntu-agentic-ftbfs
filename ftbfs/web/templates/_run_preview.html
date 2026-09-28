@@ -1,0 +1,30 @@
+{% from "_macros.html" import unit_link %}
+<div id="preview">
+<form class="filters" hx-post="/runs/start" hx-target="#run-msg" hx-disabled-elt="find button">
+  <label>Up to stage
+    <select name="until" hx-get="/next/preview" hx-target="#preview" hx-swap="outerHTML">
+      <option value="">whole pipeline</option>
+      {% for name in pipeline.specs %}<option value="{{ name }}" {% if name == until %}selected{% endif %}>{{ name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label><span><input type="checkbox" name="ingest" value="true"> fetch a fresh snapshot first</span></label>
+  {% if running %}<a href="/runs/{{ running.id }}">run #{{ running.id }} is in progress</a>
+  {% else %}<button class="approve">start run</button>{% endif %}
+  <span id="run-msg"></span>
+</form>
+{% set total = preview|sum(attribute='cost') %}
+<table class="small">
+<tr><th>Stage</th><th class="num">Would run now</th><th class="num">Est. cost</th><th class="num">Waiting at gate</th><th class="num">Blocked upstream</th><th>Units</th></tr>
+{% for p in preview %}
+<tr{% if p.ready %} class="selected"{% endif %}>
+  <td>{{ p.stage }} <span class="muted">per {{ p.unit }}</span></td>
+  <td class="num">{{ p.ready|length or '-' }}</td>
+  <td class="num">{{ p.cost|money if p.agent else ('free' if p.ready else '-') }}</td>
+  <td class="num">{% if p.gate %}<a href="#approve-{{ p.stage }}" class="gate">{{ p.gate }}</a>{% else %}-{% endif %}</td>
+  <td class="num">{{ p.blocked or '-' }}</td>
+  <td class="mono">{% for u in p.names %}{{ unit_link(u, p.stage) }}{% if not loop.last %}, {% endif %}{% endfor %}{% if p.ready|length > p.names|length %} and {{ p.ready|length - p.names|length }} more{% endif %}</td>
+</tr>
+{% endfor %}
+</table>
+<p class="muted small">Estimated from the mean recorded cost per result: about <b>{{ total|money }}</b> for the stages that can start now. Work unblocked by this run (e.g. dev after a new reproduce) runs too and is not counted.</p>
+</div>

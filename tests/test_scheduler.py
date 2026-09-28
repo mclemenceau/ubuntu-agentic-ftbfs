@@ -133,6 +133,25 @@ def test_manual_gate(db, units, tmp_path):
     assert calls("dev") == [chosen]
 
 
+def test_plan_is_a_dry_run_and_gates_queue_beyond_until(db, units,
+                                                        tmp_path):
+    stages = [make_stage("a"), make_stage("dev"), make_stage("b")]
+    conf = {"a": {}, "dev": {"after": ["a"], "gate": "manual"},
+            "b": {"after": ["dev"]}}
+    s = sched(db, units, tmp_path, stages, conf)
+    plan = s.plan()
+    assert len(plan["a"]["ready"]) == 5
+    assert len(plan["dev"]["blocked"]) == 5 and "ready" not in plan["dev"]
+    assert CALLS == [] and not db.query("SELECT 1 FROM gate")
+
+    s.run(until="a")  # dev is past `until` but still queues its gates
+    assert calls("dev") == []
+    assert len(db.query("SELECT 1 FROM gate WHERE decision='pending'")) == 5
+    plan = s.plan(["a", "dev"])
+    assert set(plan) == {"a", "dev"}
+    assert len(plan["a"]["done"]) == 5 and len(plan["dev"]["gate"]) == 5
+
+
 def test_outward_stage_gate_is_forced():
     out = make_stage("file_bug", kind=Kind.OUTWARD)
     p = build({"stage": {"file_bug": {}}}, {"file_bug": out}, "fake")

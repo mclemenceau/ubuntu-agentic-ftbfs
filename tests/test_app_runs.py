@@ -1,6 +1,9 @@
 import os
 import socket
 import subprocess
+import time
+
+import pytest
 
 from ftbfs.app import App
 
@@ -72,3 +75,40 @@ def test_approve_expands_source_to_waiting_items(tmp_path, snapshot):
     approved = [r["unit_id"] for r in app.db.query(
         "SELECT unit_id FROM gate WHERE decision='approved'")]
     assert approved == [ids[0]]
+
+
+def test_start_run_spawns_a_detached_run(tmp_path):
+    (tmp_path / "pipeline.toml").write_text("[stage.excerpt]\n")
+    app = App(tmp_path)
+    run_id = app.start_run(until="excerpt", by="web")
+    run = app.db.one("SELECT * FROM run WHERE id=?", (run_id,))
+    assert run["trigger"] == "web"
+    for _ in range(100):  # nothing is selected, so it ends quickly
+        if status(app, run_id) != "running":
+            break
+        time.sleep(0.1)
+    assert status(app, run_id) == "done"
+    assert app.db.one("SELECT 1 FROM event WHERE type='run_requested'")
+    insert_run(app, os.getpid(), socket.gethostname())
+    with pytest.raises(ValueError, match="already in progress"):
+        app.start_run()
+
+
+def test_decided_versions_are_left_out_of_runs(tmp_path, snapshot):
+    from ftbfs.inventory import store
+
+    (tmp_path / "pipeline.toml").write_text("[stage.excerpt]\n")
+    app = App(tmp_path)
+    store(app.db, snapshot, tmp_path / "s.json")
+    flt = app.config.make_filter(sources=["freehsm-c"])
+    item = app.select(flt)[0]
+    app.dispose(item["source"], item["version"], "accepted", "test")
+    left = app.workable(flt)
+    assert len(left) < len(app.select(flt))
+    assert item["version"] not in {r["version"] for r in left}
+    why = app.explain([item["id"]], flt)[item["id"]]
+    assert any("you decided: accepted" in r for r in why["filtered_out"])
+    with pytest.raises(ValueError):
+        app.dispose(item["source"], item["version"], "bogus", "test")
+    app.dispose(item["source"], item["version"], None, "test")
+    assert len(app.workable(flt)) == len(app.select(flt))

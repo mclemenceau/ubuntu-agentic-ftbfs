@@ -321,3 +321,34 @@ def snapshot_diff(db: DB, a: int, b: int) -> dict:
             "regressed": regressed, "changed": changed,
             "fixed_sources": fixed_sources, "count_a": len(ia),
             "count_b": len(ib)}
+
+
+# -- next steps -----------------------------------------------------------
+
+def dispositions(db: DB) -> dict[tuple[str, str], dict]:
+    return {(r["source"], r["version"]): dict(r)
+            for r in db.query("SELECT * FROM disposition")}
+
+
+def items_by_id(db: DB, ids: list[str]) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        out.update({r["id"]: dict(r) for r in db.query(
+            f"SELECT * FROM item WHERE id IN ({','.join('?' * len(chunk))})",
+            chunk)})
+    return out
+
+
+def latest_with_status(db: DB, stage: str, status: str) -> list:
+    """Latest result per unit of `stage`, where that result has
+    `status`."""
+    return db.query(f"SELECT * FROM ({LATEST}) WHERE stage=? AND status=?"
+                    " ORDER BY unit_id", (stage, status))
+
+
+def avg_cost(db: DB) -> dict[str, float]:
+    """Mean recorded cost per result, by stage, for run estimates."""
+    return {r["stage"]: r["c"] for r in db.query(
+        "SELECT stage, AVG(cost) AS c FROM stage_result WHERE cost IS NOT"
+        " NULL AND status='ok' GROUP BY stage")}

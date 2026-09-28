@@ -213,16 +213,43 @@ class Scheduler:
             out.append((spec.name, self.decide(spec, uid, ctx).reason))
         return out
 
+    def plan(self, names: list[str] | None = None
+             ) -> dict[str, dict[str, list[str]]]:
+        """What a run would do now, without running anything: per stage,
+        the units in each outcome of plan_outcome(). Stages only see
+        results that exist already, so units downstream of ready work
+        show as blocked until that work has run."""
+        out: dict[str, dict[str, list[str]]] = {}
+        for spec in self.pipeline:
+            if names is not None and spec.name not in names:
+                continue
+            uids = self.units.of(spec.stage.unit)
+            ctx = self._context(spec, dict.fromkeys(uids, 0))
+            per = out.setdefault(spec.name, {})
+            for uid in uids:
+                reason = self.decide(spec, uid, ctx).reason
+                per.setdefault(plan_outcome(reason), []).append(uid)
+        return out
+
     # -- execution --------------------------------------------------------
 
-    def run(self, only: list[str] | None = None,
-            until: str | None = None) -> dict[str, dict[str, int]]:
-        """Run passes until quiescent. Returns counts per stage/status."""
+    def stage_names(self, only: list[str] | None = None,
+                    until: str | None = None) -> list[str]:
         names = list(self.pipeline.specs)
         if until:
             names = [*self.pipeline.ancestors(until), until]
         if only:
             names = [n for n in names if n in only]
+        return names
+
+    def run(self, only: list[str] | None = None,
+            until: str | None = None) -> dict[str, dict[str, int]]:
+        """Run passes until quiescent. Returns counts per stage/status.
+
+        Gated stages left out by `only` or `until` still queue their
+        pending gates, so the gate queue shows everything that waits
+        for a human, not only what this run reached."""
+        names = self.stage_names(only, until)
         totals: dict[str, dict[str, int]] = {}
         for _ in range(MAX_PASSES):
             did_work = False
@@ -237,6 +264,11 @@ class Scheduler:
                 did_work |= any(k != Status.PENDING for k in counts)
             if not did_work:
                 break
+        skipped = [n for n in self.pipeline.specs if n not in names]
+        for stage, per in self.plan(
+                [n for n in skipped if self.pipeline[n].gate]).items():
+            for uid in per.get("gate", []):
+                self._ensure_pending_gate(self.pipeline[stage], uid)
         return totals
 
     def _check_control(self) -> None:
@@ -386,6 +418,26 @@ class Scheduler:
             )
         self.db.event("gate_wait", run_id=self.run_id, unit=uid,
                       stage=spec.name)
+
+
+def plan_outcome(reason: str) -> str:
+    """Bucket a Decision reason: ready, gate, done, pending, blocked
+    (an upstream stage has no ok result), skipped (not applicable or
+    rejected) or gave-up."""
+    if reason == "ready":
+        return "ready"
+    if reason == "waiting for manual approval":
+        return "gate"
+    if reason.startswith("cached"):
+        return "done"
+    if reason.startswith("pending"):
+        return "pending"
+    if reason.startswith("gave up"):
+        return "gave-up"
+    if reason.startswith(("when is false", "not eligible", "rejected",
+                          "no ")) or reason.endswith(" is skip"):
+        return "skipped"
+    return "blocked"
 
 
 def _non_default(obj) -> dict | None:

@@ -178,6 +178,48 @@ def test_gate_decision_from_ui(client, project):
                       " unit=? AND stage='dev'", (iid,))
 
 
+def test_next_steps_inbox(client, project):
+    app, iid = project["app"], project["iid"]
+    src, ver = project["src"], project["ver"]
+    page = client.get("/").text
+    review = page[page.index('id="review"'):page.index('id="upload"')]
+    assert src in review and "fix.debdiff" in review
+    assert "Fix it." in review
+
+    r = client.post("/dispose", headers=HX, data={
+        "source": src, "version": ver, "status": "accepted"})
+    assert r.status_code == 200 and "accepted" in r.text
+    page = client.get("/").text
+    upload = page[page.index('id="upload"'):page.index('id="human"')]
+    assert src in upload and "mark uploaded" in upload
+    assert src not in page[page.index('id="review"'):
+                           page.index('id="upload"')]
+    assert app.workable(app.config.make_filter(sources=[src])) == []
+    assert "Your decision" in client.get(f"/pkg/{src}/{ver}").text
+    assert client.post("/dispose", headers=HX, data={
+        "source": src, "version": ver, "status": "nope"}
+    ).status_code == 400
+    client.post("/dispose", headers=HX,
+                data={"source": src, "version": ver, "status": ""})
+    assert (src, ver) not in app.decided()
+
+    r = client.post("/gates/bulk", headers=HX, data={
+        "stage": "dev", "units": json.dumps([iid]),
+        "decision": "approved"})
+    assert r.status_code == 200 and "approved 1" in r.text
+    assert app.db.one("SELECT decision FROM gate WHERE unit_id=? AND"
+                      " stage='dev'", (iid,))["decision"] == "approved"
+    assert client.post("/gates/bulk", headers=HX, data={
+        "stage": "dev", "units": '"x"', "decision": "approved"}
+    ).status_code == 400
+
+    assert client.get("/next/preview?until=triage").status_code == 200
+    assert client.get("/next/preview?until=nope").status_code == 400
+    # the fixture's run is still running: no second run
+    r = client.post("/runs/start", headers=HX, data={"until": "excerpt"})
+    assert "already in progress" in r.text
+
+
 def test_guards(client, project):
     assert client.post("/retry", data={"stage": "dev", "unit": "x"}
                        ).status_code == 403  # no HX-Request

@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% from "_macros.html" import unit_link, file_link, dispose, signal %}
+{% block title %}Next steps{% endblock %}
+{% block main %}
+{% set n_approve = n.approvals|sum(attribute='total') %}
+{% set n_run = n.preview|sum(attribute='ready', start=[])|length %}
+<h1>Next steps</h1>
+<p class="muted small">For the configured selection: {{ n.selected }} items.
+{% if n.snapshot %}Snapshot #{{ n.snapshot.id }} ({{ n.snapshot.series }}) fetched {{ n.snapshot_age|ago }} ago{% if n.snapshot_age and n.snapshot_age > 86400 %}: <span class="warn">stale, tick "fetch a fresh snapshot" when you start the next run</span>{% endif %}.
+{% else %}<span class="warn">No snapshot yet: start a run with "fetch a fresh snapshot".</span>{% endif %}</p>
+
+<div class="grid todo">
+  <a class="card" href="#review"><div class="big">{{ n.review|length }}</div>verified fixes to review</a>
+  <a class="card" href="#upload"><div class="big">{{ n.upload|length }}</div>accepted, to upload</a>
+  <a class="card" href="#human"><div class="big {{ 'fail' if n.human }}">{{ n.human|length }}</div>need a human</a>
+  <a class="card" href="#approve"><div class="big {{ 'gate' if n_approve }}">{{ n_approve }}</div>waiting for approval</a>
+  <a class="card" href="#debian"><div class="big">{{ n.debian|length }}</div>sync/merge from Debian</a>
+  <a class="card" href="#run"><div class="big">{{ n_run }}</div>units a run would process now</a>
+</div>
+
+{% if running %}<p class="card">Run <a href="/runs/{{ running.id }}">#{{ running.id }}</a> is in progress. This page shows the state as of now; reload when it ends.</p>{% endif %}
+
+<h2 id="review">1. Review verified fixes <span class="muted">({{ n.review|length }})</span></h2>
+<p class="muted small">The fix built with sbuild. Read the debdiff and the agent's notes, then accept it (it moves to upload) or mark it won't fix.</p>
+{% if n.review %}
+<table>
+<tr><th>Package</th><th>Fix</th><th>What changed</th><th>Decision</th></tr>
+{% for f in n.review %}
+<tr>
+  <td><a href="/pkg/{{ f.source|urlq }}/{{ f.version|urlq }}"><b>{{ f.source }}</b></a><br><span class="mono small">{{ f.version }} &middot; {{ f.arches|join(', ') }}</span></td>
+  <td class="mono small">{{ f.dev.version }}<br>{% if f.dev.debdiff %}{{ file_link(f.dev.debdiff, 'debdiff') }} ({{ f.dev.debdiff_lines }} lines){% endif %}</td>
+  <td class="small">{{ f.dev.summary }}{% if f.dev.notes %}<details><summary class="muted">agent notes</summary>{{ f.dev.notes }}</details>{% endif %}</td>
+  <td>{{ dispose(f.source, f.version, ['accepted', 'rejected']) }}</td>
+</tr>
+{% endfor %}
+</table>
+{% else %}<p class="muted">Nothing to review.</p>{% endif %}
+
+<h2 id="upload">2. Upload accepted fixes <span class="muted">({{ n.upload|length }})</span></h2>
+{% if n.upload %}
+<table>
+<tr><th>Package</th><th>Fix</th><th>Accepted</th><th></th></tr>
+{% for f in n.upload %}
+<tr>
+  <td><a href="/pkg/{{ f.source|urlq }}/{{ f.version|urlq }}"><b>{{ f.source }}</b></a> <span class="mono small">{{ f.version }}</span></td>
+  <td class="mono small">{{ f.dev.version }} {% if f.dev.debdiff %}{{ file_link(f.dev.debdiff, 'debdiff') }}{% endif %}</td>
+  <td class="mono small">{{ f.disposition.ts }}</td>
+  <td>{{ dispose(f.source, f.version, ['uploaded', 'rejected']) }}</td>
+</tr>
+{% endfor %}
+</table>
+{% else %}<p class="muted">Nothing accepted and waiting.</p>{% endif %}
+
+<h2 id="human">3. Needs a human <span class="muted">({{ n.human|length }})</span></h2>
+<p class="muted small">The pipeline gave up on these. Retry forces a fresh attempt on the next run (dev retries build on the previous edits), or take it by hand.</p>
+{% if n.human or n.lp_retry %}
+<table>
+<tr><th>Stage</th><th>Unit</th><th>Why</th><th></th></tr>
+{% for h in n.human %}
+{% set p = h.unit.split('/') %}
+<tr>
+  <td>{{ h.stage }}</td><td class="mono">{{ unit_link(h.unit, h.stage) }}</td>
+  <td class="small">{{ h.why }}</td>
+  <td><span class="actions"><span><button hx-post="/retry" hx-vals='{{ {"stage": h.retry, "unit": h.unit}|tojson }}' hx-target="closest span">retry {{ h.retry }}</button></span>
+  {% if p|length == 3 %}{{ dispose(p[0], p[1], ['rejected']) }}{% endif %}</span></td>
+</tr>
+{% endfor %}
+{% for it in n.lp_retry %}
+<tr><td>reproduce</td><td class="mono">{{ unit_link(it.id) }}</td><td class="small">builds when rebuilt locally: retry the build on <a href="{{ it.build_url }}">Launchpad</a></td>
+<td>{{ dispose(it.source, it.version, ['handled']) }}</td></tr>
+{% endfor %}
+</table>
+{% else %}<p class="muted">Nothing is stuck.</p>{% endif %}
+
+<h2 id="approve">4. Approve the next stage <span class="muted">({{ n_approve }})</span></h2>
+<p class="muted small">Everything a run would hold at a manual gate, grouped by diagnosis. Approving a bucket records the decision now; the next run picks it up. Packages you have decided on (accepted, won't fix, ...) are left out of runs.</p>
+{% for a in n.approvals %}
+{% set spec = pipeline[a.stage] %}
+<h3 id="approve-{{ a.stage }}">{{ a.stage }} <span class="muted">({{ a.total }}; {{ spec.stage.description }}{% if spec.agent %}, agent {{ spec.agent.tier }} tier{% else %}, 0 tokens{% endif %})</span></h3>
+<table>
+<tr><th>Risk</th><th>Kind</th>{% if a.stage != 'reproduce' %}<th>Reproduce</th>{% endif %}<th class="num">Units</th><th>Packages</th><th>Decision</th></tr>
+{% for b in a.buckets %}
+<tr>
+  <td>{% if b.risk %}<span class="badge {{ 'ok' if b.risk == 'low' else 'gate' if b.risk == 'medium' else 'fail' }}">{{ b.risk }}</span>{% else %}<span class="muted">-</span>{% endif %}</td>
+  <td>{{ b.kind }}</td>
+  {% if a.stage != 'reproduce' %}<td>{{ b.reproduce or '-' }}</td>{% endif %}
+  <td class="num">{{ b.units|length }}</td>
+  <td class="small"><details><summary>{% for u in b.units[:6] %}{{ u.item.source if u.item else u.id }}{% if not loop.last %}, {% endif %}{% endfor %}{% if b.units|length > 6 %} and {{ b.units|length - 6 }} more{% endif %}</summary>
+    <table class="small">{% for u in b.units %}<tr><td class="mono">{{ unit_link(u.id, a.stage) }}</td><td>{{ (u.diagnose.fix_strategy or u.triage.summary or '')|truncate(160) }}</td>
+    <td><span><button class="approve" hx-post="/gates/decide" hx-vals='{{ {"stage": a.stage, "unit": u.id, "decision": "approved"}|tojson }}' hx-target="closest span">approve</button></span></td></tr>{% endfor %}</table>
+  </details></td>
+  <td><span class="actions">{% set ids = b.units|map(attribute='id')|list %}
+    <button class="approve" hx-post="/gates/bulk" hx-vals='{{ {"stage": a.stage, "units": ids|tojson, "decision": "approved"}|tojson }}' hx-target="closest span">approve {{ ids|length }}</button>
+    <button class="reject" hx-post="/gates/bulk" hx-vals='{{ {"stage": a.stage, "units": ids|tojson, "decision": "rejected"}|tojson }}' hx-target="closest span">reject</button>
+  </span></td>
+</tr>
+{% endfor %}
+</table>
+{% else %}<p class="muted">Nothing waits for approval.</p>
+{% endfor %}
+
+<h2 id="debian">5. Sync or merge from Debian <span class="muted">({{ n.debian|length }})</span></h2>
+<p class="muted small">Triage settled these from the Debian facts: Debian's newer version fixes the failure. Sync when Ubuntu has no delta, merge when it has one.</p>
+{% if n.debian %}
+<table>
+<tr><th>Package</th><th>Ubuntu</th><th>Debian</th><th>Verdict</th><th>Decision</th></tr>
+{% for d in n.debian %}
+<tr>
+  <td><a href="/pkg/{{ d.source|urlq }}"><b>{{ d.source }}</b></a></td>
+  <td class="mono small">{{ d.versions|join(', ') }}</td>
+  <td class="mono small">{{ d.debian or '?' }}</td>
+  <td>{{ d.action }}{% for s in d.signals %} {{ signal(s) }}{% endfor %}</td>
+  <td>{% for v in d.versions %}{{ dispose(d.source, v, ['handled', 'rejected']) }}{% endfor %}</td>
+</tr>
+{% endfor %}
+</table>
+{% else %}<p class="muted">No sync or merge candidates left.</p>{% endif %}
+
+<h2 id="run">6. Run the pipeline</h2>
+<p class="muted small">What a run would start right now (a dry run of the scheduler; cached results are skipped). Check the rows before you start it: a changed upstream result re-runs everything below it.</p>
+{% with preview = n.preview %}{% include "_run_preview.html" %}{% endwith %}
+{% endblock %}

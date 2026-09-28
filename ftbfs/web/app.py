@@ -33,12 +33,12 @@ from markdown_it import MarkdownIt
 from markupsafe import Markup
 
 from ..agents.base import running_pid
-from ..app import App
+from ..app import DISPOSITIONS, App
 from ..core.stage import UnitType
 from ..facts.derive import SIGNALS
 from ..report import Result, Section
+from . import nextsteps, transcript
 from . import queries as q
-from . import transcript
 
 HERE = Path(__file__).parent
 TICK_S = 2.0
@@ -81,6 +81,7 @@ def create_app(root: Path, loopback_only: bool = True) -> FastAPI:
     tpl.env.globals["unit_types"] = {
         s.name: str(s.stage.unit) for s in core.pipeline}
     tpl.env.globals["signal_help"] = SIGNALS
+    tpl.env.globals["dispositions"] = DISPOSITIONS
 
     @web.middleware("http")
     async def guard(request: Request, call_next):
@@ -116,9 +117,50 @@ def create_app(root: Path, loopback_only: bool = True) -> FastAPI:
             raise HTTPException(404, "no such file")
         return p
 
-    # -- overview ---------------------------------------------------------
+    # -- next steps -------------------------------------------------------
 
     @web.get("/", response_class=HTMLResponse)
+    def next_steps(request: Request):
+        core.reap_stale_runs()
+        return page(request, "next.html",
+                    n=nextsteps.build(core, core.config.make_filter()),
+                    pipeline=core.pipeline, until="")
+
+    @web.get("/next/preview", response_class=HTMLResponse)
+    def next_preview(request: Request, until: str = ""):
+        if until and until not in core.pipeline.specs:
+            raise HTTPException(400, f"no stage {until!r}")
+        plan = core.plan(core.config.make_filter(), until or None)
+        return tpl.TemplateResponse(request, "_run_preview.html", {
+            "preview": nextsteps.preview(core, plan), "until": until,
+            "pipeline": core.pipeline,
+            "running": core.db.one("SELECT id FROM run WHERE"
+                                   " status='running' LIMIT 1")})
+
+    @web.post("/runs/start", response_class=HTMLResponse)
+    def run_start(until: str = Form(""), ingest: bool = Form(False)):
+        try:
+            run_id = core.start_run(until or None, ingest, "web")
+        except (ValueError, RuntimeError) as e:
+            return HTMLResponse(f"<span class=warn>{escape(str(e))}</span>")
+        return HTMLResponse("", headers={"HX-Redirect": f"/runs/{run_id}"})
+
+    @web.post("/dispose", response_class=HTMLResponse)
+    def dispose(source: str = Form(...), version: str = Form(...),
+                status: str = Form(""), note: str = Form("")):
+        try:
+            core.dispose(source, version, status or None, "web",
+                         note or None)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+        if not status:
+            return HTMLResponse("<span class='badge'>cleared</span>")
+        return HTMLResponse(f"<span class='badge ok'>{escape(status)}"
+                            "</span>")
+
+    # -- overview ---------------------------------------------------------
+
+    @web.get("/overview", response_class=HTMLResponse)
     def overview(request: Request):
         core.reap_stale_runs()
         snaps = q.snapshots(core.db)
@@ -393,7 +435,9 @@ def create_app(root: Path, loopback_only: bool = True) -> FastAPI:
                     events=q.timeline(core.db, source, version),
                     gated=[s.name for s in core.pipeline if s.gate],
                     stages=list(core.pipeline.specs),
-                    matrix=_status_matrix(inv.items))
+                    matrix=_status_matrix(inv.items),
+                    disposition=q.dispositions(core.db).get(
+                        (source, version)))
 
     @web.get("/pkg/{source}/{version}/investigation.md")
     def package_md(source: str, version: str):
@@ -514,6 +558,23 @@ def create_app(root: Path, loopback_only: bool = True) -> FastAPI:
             raise HTTPException(400, str(e)) from None
         css = "ok" if decision == "approved" else "fail"
         return HTMLResponse(f"<span class='badge {css}'>{decision}</span>")
+
+    @web.post("/gates/bulk", response_class=HTMLResponse)
+    def gate_bulk(stage: str = Form(...), units: str = Form(...),
+                  decision: str = Form(...)):
+        """Decide a whole bucket. Units need not be at the gate yet: a
+        decision recorded ahead is honoured when a run reaches it."""
+        try:
+            ids = json.loads(units)
+            if not isinstance(ids, list) or not all(
+                    isinstance(u, str) and u for u in ids):
+                raise ValueError("units must be a list of unit ids")
+            done = core.approve(stage, ids, decision, "web")
+        except (ValueError, json.JSONDecodeError) as e:
+            raise HTTPException(400, str(e)) from None
+        css = "ok" if decision == "approved" else "fail"
+        return HTMLResponse(f"<span class='badge {css}'>{decision}"
+                            f" {len(done)}</span>")
 
     @web.post("/retry", response_class=HTMLResponse)
     def retry(stage: str = Form(...), unit: str = Form(...)):

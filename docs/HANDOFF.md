@@ -157,6 +157,15 @@ gpg-agent kept timing out.
     stream-json (unknown events are shown raw)
   - security: loopback bind, Host check, POSTs need `HX-Request`, file
     serving limited to `work/`, `cache/` and snapshots
+- Next steps inbox at `/` (`ftbfs/web/nextsteps.py`; the old overview
+  is `/overview`): verified fixes to review, accepted fixes to upload,
+  needs a human, gate approvals in buckets by diagnosis (decided ahead
+  of the gate), sync/merge verdicts, and a dry-run preview of the next
+  run (`Scheduler.plan`) with a start button (`App.start_run`, a
+  detached `python -m ftbfs run --trigger web`). A disposition per
+  source version (accepted, uploaded, rejected, handled) takes it out
+  of the inbox and out of runs (`App.workable`). Runs now queue the
+  pending gates of stages beyond `--until`.
 - `ftbfs report` / `ftbfs/report.py`: `investigation.md` per source
   version, stitched from `ftbfs/templates/stages/<stage>.md.j2` in DAG
   order; plugins override with `plugins/templates/`. Summary and next

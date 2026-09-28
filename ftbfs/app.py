@@ -6,6 +6,9 @@ import json
 import os
 import signal
 import socket
+import subprocess
+import sys
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -71,6 +74,18 @@ class App:
 
     def select(self, flt: Filter) -> list:
         return select(self.db, flt)
+
+    def decided(self) -> dict[tuple[str, str], str]:
+        """(source, version) -> disposition status."""
+        return {(r["source"], r["version"]): r["status"]
+                for r in self.db.query("SELECT * FROM disposition")}
+
+    def workable(self, flt: Filter) -> list:
+        """The selection minus source versions a human has decided on
+        (accepted, uploaded, ...): runs stop spending on them."""
+        decided = self.decided()
+        return [r for r in self.select(flt)
+                if (r["source"], r["version"]) not in decided]
 
     def export(self, flt: Filter) -> dict:
         snap = self.db.one("SELECT * FROM snapshot ORDER BY id DESC LIMIT 1")
@@ -142,7 +157,7 @@ class App:
     def run(self, flt: Filter, only: list[str] | None = None,
             until: str | None = None, trigger: str = "cli") -> dict:
         self.reap_stale_runs()
-        items = self.select(flt)
+        items = self.workable(flt)
         run_id = self.db.execute(
             "INSERT INTO run (started, status, filter, pipeline_hash,"
             " trigger, pid, host) VALUES (?, 'running', ?, ?, ?, ?, ?)",
@@ -172,16 +187,68 @@ class App:
         return {"run_id": run_id, "status": status, "items": len(items),
                 "totals": totals}
 
+    def plan(self, flt: Filter, until: str | None = None
+             ) -> dict[str, dict[str, list[str]]]:
+        """Dry run: per stage, the units a run with this selection
+        would run, find cached, hold at a gate, ... (Scheduler.plan)."""
+        sched = self.scheduler(Units(self.workable(flt), self.db))
+        return sched.plan(sched.stage_names(until=until))
+
+    def start_run(self, until: str | None = None, ingest: bool = False,
+                  by: str = "web", wait_s: float = 10.0) -> int:
+        """Start `ftbfs run` on the configured selection as a detached
+        process, so it outlives the caller (e.g. a UI restart). Returns
+        its run id once the run is recorded."""
+        self.reap_stale_runs()
+        if self.db.one("SELECT 1 FROM run WHERE status='running'"):
+            raise ValueError("a run is already in progress")
+        if until is not None and until not in self.pipeline.specs:
+            raise ValueError(f"stage {until!r} is not in the pipeline")
+        args = [sys.executable, "-m", "ftbfs", "--root",
+                str(self.config.root), "run", "--trigger", by]
+        if until:
+            args += ["--until", until]
+        if ingest:
+            args.append("--ingest")
+        logs = self.config.state_dir / "runs"
+        logs.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+        with open(logs / f"{stamp}.log", "ab") as log:
+            proc = subprocess.Popen(
+                args, stdin=subprocess.DEVNULL, stdout=log,
+                stderr=subprocess.STDOUT, start_new_session=True,
+                cwd=self.config.root)
+        self.db.event("run_requested", by=by, pid=proc.pid, until=until,
+                      ingest=ingest, log=str(logs / f"{stamp}.log"))
+        deadline = time.monotonic() + wait_s
+        while time.monotonic() < deadline:
+            row = self.db.one("SELECT id FROM run WHERE pid=? AND host=?"
+                              " ORDER BY id DESC LIMIT 1",
+                              (proc.pid, socket.gethostname()))
+            if row:
+                return row["id"]
+            if proc.poll() is not None:
+                raise RuntimeError(f"run exited with {proc.returncode};"
+                                   f" see {log.name}")
+            time.sleep(0.2)
+        raise RuntimeError(f"run did not start within {wait_s:.0f}s;"
+                           f" see {log.name}")
+
     def explain(self, item_ids: list[str], flt: Filter) -> dict:
         """Per item: filter reasons, then per-stage decisions."""
         rows = {r["id"]: r for r in all_items(self.db)}
         out = {}
-        selected = self.select(flt)
+        decided = self.decided()
+        selected = self.workable(flt)
         units = Units(selected, self.db)
         sched = self.scheduler(units)
         for iid in item_ids:
             row = rows[iid]
             reasons = flt.explain(row)
+            status = decided.get((row["source"], row["version"]))
+            if status:
+                reasons.append(f"you decided: {status} (clear it on the"
+                               " package page to resume)")
             if reasons:
                 out[iid] = {"filtered_out": reasons, "stages": []}
                 continue
@@ -234,6 +301,25 @@ class App:
                           note=note, by=by)
         return units
 
+    def dispose(self, source: str, version: str, status: str | None,
+                by: str, note: str | None = None) -> None:
+        """Record what a human did about a source version, outside the
+        pipeline. None clears it."""
+        if status is not None and status not in DISPOSITIONS:
+            raise ValueError(f"bad disposition {status!r}")
+        if status is None:
+            self.db.execute("DELETE FROM disposition WHERE source=? AND"
+                            " version=?", (source, version))
+        else:
+            self.db.execute(
+                "INSERT INTO disposition VALUES (?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT(source, version) DO UPDATE SET"
+                " status=excluded.status, by=excluded.by,"
+                " note=excluded.note, ts=excluded.ts",
+                (source, version, status, by, note, now()))
+        self.db.event("disposition", unit=f"{source}/{version}",
+                      status=status, by=by, note=note)
+
     def retry(self, stage: str, units: list[str], by: str) -> None:
         """Force `stage` to re-run for these units on the next run."""
         if stage not in self.pipeline.specs:
@@ -278,6 +364,15 @@ class App:
 
 
 STALE_AFTER = timedelta(minutes=15)
+
+# What a human did about a source version. Any of them takes it out of
+# the Next steps inbox, except accepted, which still waits for upload.
+DISPOSITIONS = {
+    "accepted": "fix reviewed and accepted, to upload",
+    "uploaded": "uploaded or sent for sponsorship",
+    "rejected": "won't fix here",
+    "handled": "handled elsewhere (sync, merge, someone else)",
+}
 
 
 def _alive(pid: int) -> bool:

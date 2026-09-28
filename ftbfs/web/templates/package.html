@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import status, dot, file_link, unit_link, signal %}
+{% from "_macros.html" import status, dot, file_link, unit_link, signal, dispose %}
 {% block title %}{{ inv.source }} {{ inv.version }}{% endblock %}
 {% block main %}
 <h1>{{ inv.source }} <span class="muted">{{ inv.version }}</span></h1>
@@ -8,6 +8,12 @@
     {% for v in versions if v != inv.version %}<a href="/pkg/{{ inv.source|urlq }}/{{ v|urlq }}">{{ v }}</a> {% endfor %}&middot;{% endif %}
   <a href="/pkg/{{ inv.source|urlq }}/{{ inv.version|urlq }}/investigation.md">investigation.md</a>
   &middot; <a href="/items?source={{ inv.source|urlq }}&everything=1">items</a>
+</div>
+<div class="disposition small"><b>Your decision:</b>
+  <span>{% if disposition %}<span class="badge ok">{{ disposition.status }}</span> <span class="muted">{{ dispositions[disposition.status] }}, {{ disposition.ts }}</span>
+  <button hx-post="/dispose" hx-vals='{{ {"source": inv.source, "version": inv.version, "status": ""}|tojson }}' hx-target="closest span">clear</button>
+  {% else %}<span class="muted">none yet</span>{% endif %}</span>
+  {{ dispose(inv.source, inv.version, dispositions.keys()) }}
 </div>
 {% if facts %}<div class="chips">{% for s in facts.signals %}{{ signal(s) }}{% else %}<span class="muted">no signals</span>{% endfor %}</div>{% endif %}
 <div class="cols">

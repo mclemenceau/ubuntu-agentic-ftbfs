@@ -113,6 +113,19 @@ SCHEMA = [
     ALTER TABLE run ADD COLUMN pid INTEGER;
     ALTER TABLE run ADD COLUMN host TEXT;
     """,
+    # v4: what a human decided about a source version, outside the
+    # pipeline (fix accepted, uploaded, won't fix, handled elsewhere)
+    """
+    CREATE TABLE disposition (
+        source TEXT NOT NULL,
+        version TEXT NOT NULL,
+        status TEXT NOT NULL,
+        by TEXT,
+        note TEXT,
+        ts TEXT NOT NULL,
+        PRIMARY KEY (source, version)
+    );
+    """,
 ]
 
 

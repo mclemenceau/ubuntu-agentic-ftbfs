@@ -12,7 +12,8 @@
 <header>
   <a class="brand" href="/">ftbfs</a>
   <nav>
-    <a href="/">Overview</a>
+    <a href="/">Next steps</a>
+    <a href="/overview">Pipeline</a>
     {% if running %}<a class="live" href="/runs/{{ running.id }}">&#9679; Run #{{ running.id }}</a>
     {% else %}<a href="/runs">Runs</a>{% endif %}
     <a href="/gates">Gates{% if nav_gates %}<span class="count">{{ nav_gates }}</span>{% endif %}</a>

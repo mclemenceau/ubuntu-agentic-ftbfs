@@ -85,7 +85,8 @@ def cmd_list(app: App, a) -> None:
 def cmd_run(app: App, a) -> None:
     if a.ingest:
         cmd_ingest(app, a)
-    res = app.run(_filter(app, a), only=a.stage, until=a.until)
+    res = app.run(_filter(app, a), only=a.stage, until=a.until,
+                  trigger=a.trigger)
     print(f"run {res['run_id']} {res['status']}: {res['items']} items")
     for stage, counts in res["totals"].items():
         print(f"  {stage:22} " + ", ".join(
@@ -441,6 +442,7 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--stage", action="append",
                    help="only run these stages")
     s.add_argument("--until", help="run up to and including this stage")
+    s.add_argument("--trigger", default="cli", help=argparse.SUPPRESS)
     s.set_defaults(func=cmd_run)
 
     s = sub.add_parser("clusters", help="failure clusters and rule hits")
