@@ -28,6 +28,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import MISSING, dataclass, fields
 
 from ..agents.base import AgentBackend
+from ..builder.pool import BuilderPool, NoBuilder, make_pool
 from ..db import DB, now
 from .context import Context, Paths, Units
 from .expr import evaluate
@@ -70,7 +71,8 @@ class Scheduler:
     def __init__(self, db: DB, pipeline: Pipeline, units: Units,
                  backends: dict[str, AgentBackend], paths: Paths,
                  concurrency: dict[str, int] | None = None,
-                 run_id: int | None = None):
+                 run_id: int | None = None,
+                 builders: BuilderPool | None = None):
         self.db = db
         self.pipeline = pipeline
         self.units = units
@@ -80,6 +82,11 @@ class Scheduler:
                             **{Kind(k): v
                                for k, v in (concurrency or {}).items()}}
         self.run_id = run_id
+        self.builders = builders or make_pool(
+            {}, self.concurrency[Kind.BUILD])
+        # Build workers only wait for a builder slot; the pool is what
+        # bounds how many builds run at once.
+        self.concurrency[Kind.BUILD] = self.builders.slots
 
     # -- decisions --------------------------------------------------------
 
@@ -199,7 +206,8 @@ class Scheduler:
                        units=self.units, backends=self.backends,
                        paths=self.paths, attempts=attempts,
                        unit_types={s.name: s.stage.unit
-                                   for s in self.pipeline})
+                                   for s in self.pipeline},
+                       builders=self.builders)
 
     def explain(self, uid_for: dict[str, str]) -> list[tuple[str, str]]:
         """Decision per stage for one item (and its package/cluster)."""
@@ -351,6 +359,13 @@ class Scheduler:
             if missing:
                 raise RuntimeError(f"stage returned no result for {missing}")
             return [by_unit[u] for u in batch]
+        except NoBuilder as e:
+            # Every host that can build this is down: wait for the next
+            # run like an external job, without counting an error.
+            return [StageResult(u, Status.PENDING,
+                                {"phase": "waiting-for-builder",
+                                 "reason": str(e)})
+                    for u in batch]
         except Exception as e:
             tb = traceback.format_exc()
             return [

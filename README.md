@@ -15,6 +15,7 @@ uv run ftbfs clusters                # failure clusters, rule hit rate
 uv run ftbfs signals -v              # Debian/upstream facts per package
 uv run ftbfs verdicts                # triage + diagnosis per cluster
 uv run ftbfs status                  # runs, per-stage counts, gates, cost
+uv run ftbfs builders                # build hosts, image, workers
 ```
 
 The selection defaults come from `config.toml` (`[filter]`). The CLI flags

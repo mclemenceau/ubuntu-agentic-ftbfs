@@ -1,7 +1,8 @@
 """reproduce: rebuild the failing version and compare with Launchpad.
 
-Local sbuild for `local_arches` (default amd64); other arches go to a
-PPA (option `ppa = "owner/name"`) when configured. PPA builds are
+sbuild on our own builders (config.toml `[builders.*]`) for
+`local_arches` (default amd64) that a builder supports; other arches go
+to a PPA (option `ppa = "owner/name"`) when configured. PPA builds are
 asynchronous: the stage returns `pending` and is polled on later runs.
 
 Outcomes: reproduced, reproduced-similar, different-failure, built
@@ -54,12 +55,13 @@ class ReproduceStage(Stage):
     description = "Rebuild the failing version (sbuild or PPA) and " \
                   "compare with the Launchpad failure"
 
-    def _local_arches(self, ctx) -> list[str]:
-        return ctx.options.get("local_arches", ["amd64"])
+    def _local(self, ctx, arch: str) -> bool:
+        return (arch in ctx.options.get("local_arches", ["amd64"])
+                and ctx.can_build(arch))
 
     def eligible(self, ctx, unit_id):
         arch = ctx.item(unit_id)["arch"]
-        if arch in self._local_arches(ctx) or ctx.options.get("ppa"):
+        if self._local(ctx, arch) or ctx.options.get("ppa"):
             return None
         return f"no local builder for {arch} and no ppa configured"
 
@@ -71,8 +73,8 @@ class ReproduceStage(Stage):
         for uid in unit_ids:
             item = ctx.item(uid)
             original = ctx.result(uid, "excerpt") or {}
-            if item["arch"] in self._local_arches(ctx):
-                out.append(self._local(ctx, uid, item, original, rules))
+            if self._local(ctx, item["arch"]):
+                out.append(self._sbuild(ctx, uid, item, original, rules))
                 continue
             try:
                 ppa = ppa or PPA(ctx.paths.root / ctx.options.get(
@@ -87,24 +89,17 @@ class ReproduceStage(Stage):
 
     # -- local --------------------------------------------------------------
 
-    def _local(self, ctx, uid, item, original, rules) -> StageResult:
+    def _sbuild(self, ctx, uid, item, original, rules) -> StageResult:
         series = _series(ctx)
         dsc = local.fetch_source(item["source"], item["version"],
                                  ctx.paths.cache / "sources")
         adir = ctx.attempt_dir(uid)
-        ctx.event("build_start", unit=uid, where="local",
-                  arch=item["arch"], dir=str(adir))
-        b = local.build(
-            dsc, item["arch"], f"{series}-proposed", adir / "build",
-            extra_repositories(item["component"], series),
-            parallel=ctx.options.get("parallel", 8),
-            timeout=ctx.options.get("timeout", 4 * 3600),
-            idle_timeout=ctx.options.get("idle_timeout",
-                                         local.IDLE_TIMEOUT),
-        )
-        ctx.event("build_end", unit=uid, ok=b.ok, exit=b.exit_code,
-                  duration_s=round(b.duration_s))
-        base = {"where": "local", "arch": item["arch"],
+        b = ctx.build(uid, dsc, item["arch"], f"{series}-proposed",
+                      adir / "build",
+                      extra_repositories(item["component"], series),
+                      dir=str(adir))
+        base = {"where": "local", "builder": b.builder,
+                "arch": item["arch"],
                 "duration_s": round(b.duration_s),
                 "log": str(b.log) if b.log else None}
         if b.timed_out:

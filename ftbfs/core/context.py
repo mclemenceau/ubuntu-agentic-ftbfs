@@ -23,6 +23,8 @@ from ..agents.base import (
 from .stage import UnitType
 
 if TYPE_CHECKING:
+    from ..builder.base import BuildResult
+    from ..builder.pool import BuilderPool
     from ..db import DB
     from .pipeline import StageSpec
 
@@ -121,8 +123,10 @@ class Context:
     def __init__(self, *, db: DB, run_id: int | None, spec: StageSpec,
                  units: Units, backends: dict[str, AgentBackend],
                  paths: Paths, attempts: dict[str, int],
-                 unit_types: dict[str, UnitType]):
+                 unit_types: dict[str, UnitType],
+                 builders: BuilderPool | None = None):
         self.db = db
+        self.builders = builders
         self.unit_types = unit_types
         self.run_id = run_id
         self.spec = spec
@@ -219,6 +223,53 @@ class Context:
     def event(self, type_: str, unit: str | None = None, **payload) -> int:
         return self.db.event(type_, run_id=self.run_id, unit=unit,
                              stage=self.spec.name, **payload)
+
+    # -- builds -----------------------------------------------------------
+
+    def can_build(self, arch: str) -> bool:
+        return self.builders is not None and self.builders.supports(arch)
+
+    def build(self, unit_id: str, dsc: Path, arch: str, dist: str,
+              build_dir: Path, extra_repos: list[str], /,
+              **event) -> BuildResult:
+        """sbuild on whichever builder has a free slot for `arch`.
+        The stage options `parallel`, `timeout` and `idle_timeout`
+        apply; a builder's own `parallel` takes precedence. A builder
+        that cannot build (host down) is taken out of the pool and the
+        build goes to another one."""
+        from ..builder import local
+        from ..builder.base import BuilderUnavailable
+
+        if self.builders is None:
+            raise RuntimeError("no builders configured")
+        opts = self.options
+        while True:
+            with self.builders.slot(arch) as b:
+                self.event("build_start", unit=unit_id, where=b.name,
+                           arch=arch, **event)
+                try:
+                    res = b.build(
+                        dsc, arch, dist, build_dir, extra_repos,
+                        parallel=b.parallel or opts.get("parallel", 8),
+                        timeout=opts.get("timeout", 4 * 3600),
+                        idle_timeout=opts.get("idle_timeout",
+                                              local.IDLE_TIMEOUT))
+                except BuilderUnavailable as e:
+                    self.event("build_end", unit=unit_id, where=b.name,
+                               ok=False, error=str(e))
+                    self.builders.mark_down(b.name, str(e))
+                    self.event("builder_down", unit=unit_id,
+                               builder=b.name, error=str(e))
+                    continue
+                except Exception as e:
+                    self.event("build_end", unit=unit_id, where=b.name,
+                               ok=False, error=repr(e))
+                    raise
+            break
+        res.builder = b.name
+        self.event("build_end", unit=unit_id, where=b.name, ok=res.ok,
+                   exit=res.exit_code, duration_s=round(res.duration_s))
+        return res
 
     # -- agents -----------------------------------------------------------
 

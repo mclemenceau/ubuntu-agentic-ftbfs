@@ -378,6 +378,31 @@ def cmd_status(app: App, a) -> None:
         print(f"\ntotal LLM cost recorded: ${total:.2f}")
 
 
+def cmd_builders(app: App, a) -> None:
+    if a.action in ("image", "sync"):
+        fp = (app.build_builder_image() if a.action == "image"
+              else app.sync_builder_image())
+        print(f"builder image {fp[:12]} on every LXD host")
+        return
+    busy = app.builders.busy()
+    for b in app.builders.builders:
+        where = getattr(b, "remote", None)
+        print(f"{b.name}: {type(b).__name__}"
+              f"{' on ' + where + ':' if where else ''}, {b.slots} slots,"
+              f" arches {','.join(b.arches)}, busy {busy[b.name]}")
+        if not hasattr(b, "status"):
+            continue
+        st = b.status()
+        if not st["reachable"]:
+            print(f"  unreachable: {st['error']}")
+            continue
+        print(f"  image {st['image'][:12] if st['image'] else 'missing'}")
+        for w, info in st["workers"].items():
+            state = "not created" if info is None else info["status"] + (
+                "" if info["current"] else ", old image")
+            print(f"  {w}: {state}")
+
+
 def cmd_approve(app: App, a) -> None:
     decision = "rejected" if a.reject else "approved"
     try:
@@ -499,6 +524,13 @@ def main(argv: list[str] | None = None) -> None:
 
     s = sub.add_parser("status", help="runs, stage counts, gates, cost")
     s.set_defaults(func=cmd_status)
+
+    s = sub.add_parser("builders", help="build hosts: status; image"
+                       " (build the LXD builder image and copy it to"
+                       " every host); sync (copy it only)")
+    s.add_argument("action", nargs="?",
+                   choices=["status", "image", "sync"], default="status")
+    s.set_defaults(func=cmd_builders)
 
     s = sub.add_parser("approve", help="approve/reject a gated stage")
     s.add_argument("stage")

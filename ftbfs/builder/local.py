@@ -11,8 +11,11 @@ import shutil
 import signal
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+
+from .base import BuildResult
 
 ARTIFACT_SUFFIXES = (".deb", ".ddeb", ".udeb", ".changes", ".buildinfo")
 
@@ -21,16 +24,6 @@ POLL_S = 5.0
 # Launchpad itself gives up after 150 minutes without output; half an
 # hour of silence is already a hang for nearly every package.
 IDLE_TIMEOUT = 30 * 60
-
-
-@dataclass
-class LocalBuild:
-    ok: bool  # dpkg-buildpackage succeeded
-    exit_code: int
-    log: Path | None
-    duration_s: float
-    timed_out: bool = False
-    stalled: bool = False  # killed because its output stopped growing
 
 
 def fetch_source(source: str, version: str, cache_dir: Path) -> Path:
@@ -53,7 +46,7 @@ def fetch_source(source: str, version: str, cache_dir: Path) -> Path:
     return dsc
 
 
-def sbuild_command(dsc: Path, arch: str, dist: str,
+def sbuild_command(dsc: Path | str, arch: str, dist: str,
                    extra_repos: list[str]) -> list[str]:
     cmd = ["sbuild", f"--dist={dist}", f"--arch={arch}",
            "--no-run-lintian", "--no-run-autopkgtest", "--no-run-piuparts",
@@ -70,17 +63,25 @@ def _output_size(build_dir: Path) -> int:
                if p.exists() and not p.is_symlink())
 
 
-def build(dsc: Path, arch: str, dist: str, build_dir: Path,
-          extra_repos: list[str] | None = None, parallel: int = 8,
-          timeout: int = 4 * 3600,
-          idle_timeout: int = IDLE_TIMEOUT) -> LocalBuild:
-    """sbuild the .dsc. It is killed after `timeout` seconds, or once
-    its log has not grown for `idle_timeout` seconds: a hung test
-    suite would otherwise hold a build slot for the whole timeout."""
+@dataclass
+class Supervised:
+    returncode: int
+    duration_s: float
+    timed_out: bool
+    stalled: bool
+
+
+def supervise(cmd: list[str], build_dir: Path, env: dict[str, str],
+              timeout: int, idle_timeout: int,
+              on_kill: Callable[[], None] | None = None) -> Supervised:
+    """Run a build command with its output in build_dir/sbuild.out.
+    It is killed after `timeout` seconds, or once its output (sbuild.out
+    and any .build log in build_dir) has not grown for `idle_timeout`
+    seconds: a hung test suite would otherwise hold a build slot for the
+    whole timeout. `on_kill` then stops whatever the command left
+    running elsewhere (e.g. on a remote host)."""
     build_dir.mkdir(parents=True, exist_ok=True)
-    cmd = sbuild_command(dsc, arch, dist, extra_repos or [])
     (build_dir / "command.txt").write_text(" ".join(cmd) + "\n")
-    env = {**os.environ, "DEB_BUILD_OPTIONS": f"parallel={parallel}"}
     start = time.monotonic()
     with (build_dir / "sbuild.out").open("w") as out:
         proc = subprocess.Popen(cmd, cwd=build_dir, stdout=out,
@@ -103,19 +104,49 @@ def build(dsc: Path, arch: str, dist: str, build_dir: Path,
                 timed_out = True
                 os.killpg(proc.pid, signal.SIGKILL)
                 proc.wait()
+                if on_kill is not None:
+                    on_kill()
                 break
-    duration = time.monotonic() - start
+    return Supervised(proc.returncode, time.monotonic() - start,
+                      timed_out, stalled)
+
+
+def build(dsc: Path, arch: str, dist: str, build_dir: Path,
+          extra_repos: list[str] | None = None, parallel: int = 8,
+          timeout: int = 4 * 3600,
+          idle_timeout: int = IDLE_TIMEOUT) -> BuildResult:
+    """sbuild the .dsc on this machine (see supervise() for timeouts)."""
+    cmd = sbuild_command(dsc, arch, dist, extra_repos or [])
+    env = {**os.environ, "DEB_BUILD_OPTIONS": f"parallel={parallel}"}
+    run = supervise(cmd, build_dir, env, timeout, idle_timeout)
     logs = sorted(p for p in build_dir.glob("*.build") if not p.is_symlink())
     for p in build_dir.iterdir():
         if p.suffix in ARTIFACT_SUFFIXES:
             p.unlink()
         elif p.is_dir():
             shutil.rmtree(p, ignore_errors=True)
-    return LocalBuild(
-        ok=proc.returncode == 0 and not timed_out,
-        exit_code=proc.returncode,
+    return BuildResult(
+        ok=run.returncode == 0 and not run.timed_out,
+        exit_code=run.returncode,
         log=logs[-1] if logs else None,
-        duration_s=duration,
-        timed_out=timed_out,
-        stalled=stalled,
+        duration_s=run.duration_s,
+        timed_out=run.timed_out,
+        stalled=run.stalled,
     )
+
+
+@dataclass
+class LocalBuilder:
+    """sbuild on this machine, with the user's sbuild config."""
+
+    name: str
+    slots: int
+    arches: tuple[str, ...] = ("amd64",)
+    parallel: int | None = None
+
+    def build(self, dsc: Path, arch: str, dist: str, build_dir: Path,
+              extra_repos: list[str], parallel: int, timeout: int,
+              idle_timeout: int) -> BuildResult:
+        return build(dsc, arch, dist, build_dir, extra_repos,
+                     parallel=parallel, timeout=timeout,
+                     idle_timeout=idle_timeout)

@@ -1,4 +1,5 @@
-"""config.toml: paths, default filter and profiles, backends, concurrency."""
+"""config.toml: paths, default filter and profiles, backends,
+concurrency, builders."""
 
 from __future__ import annotations
 
@@ -21,6 +22,7 @@ class Config:
     filter: dict = field(default_factory=dict)
     profiles: dict[str, dict] = field(default_factory=dict)
     concurrency: dict[str, int] = field(default_factory=dict)
+    builders: dict[str, dict] = field(default_factory=dict)
     default_backend: str = "claude"
     backends: dict[str, dict] = field(default_factory=dict)
 
@@ -69,6 +71,7 @@ def load_config(root: Path) -> Config:
         filter=filt,
         profiles=profiles,
         concurrency=raw.get("concurrency", {}),
+        builders=raw.get("builders", {}),
         default_backend=agents.get("default_backend", "claude"),
         backends=raw.get("backend", {}),
     )

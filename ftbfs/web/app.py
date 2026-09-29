@@ -202,7 +202,7 @@ def create_app(root: Path, loopback_only: bool = True) -> FastAPI:
             "SELECT * FROM event WHERE run_id=? ORDER BY id DESC LIMIT 100",
             (run_id,))))
         return page(request, "run.html", s=state, pipeline=core.pipeline,
-                    slots=core.config.concurrency,
+                    slots=core.builders.slots,
                     events=recent,
                     after=recent[-1]["id"] if recent else 0)
 
@@ -214,7 +214,7 @@ def create_app(root: Path, loopback_only: bool = True) -> FastAPI:
             raise HTTPException(404) from None
         return tpl.TemplateResponse(request, "_run_panel.html", {
             "s": state, "pipeline": core.pipeline,
-            "slots": core.config.concurrency})
+            "slots": core.builders.slots})
 
     @web.post("/runs/{run_id}/control", response_class=HTMLResponse)
     def run_control(request: Request, run_id: int,

@@ -1,6 +1,6 @@
 # ftbfs pipeline: status and handoff
 
-Last updated: 2026-09-27. Read this, then `README.md`, then the approved
+Last updated: 2026-09-29. Read this, then `README.md`, then the approved
 plan (`~/.claude/plans/so-i-would-like-twinkling-metcalfe.md`).
 
 ## Goal
@@ -42,6 +42,21 @@ an investigation report, shown on a dashboard.
     same Claude models through OpenRouter, billed to a dedicated key
     (`~/.config/ftbfs/openrouter.key`, `api_keys` in config.toml).
   - `fake`: for tests.
+- **Builders** (`ftbfs/builder/pool.py`, `lxd.py`): reproduce and
+  verify ask `ctx.build()` for a slot; the build goes to the builder
+  with the most free slots for the arch. `config.toml` `[builders.*]`:
+  - `lxd`: one worker container per slot on an LXD remote (`local`
+    and `marsangle` now), all from one image (`ftbfs builders image`:
+    sbuild, mmdebstrap, the `<series>-proposed` chroot tarball,
+    sbuild's AppArmor profile in complain mode, which nested unshare
+    needs). Recreated on a new image; force-restarted on first use per
+    process and after a killed build; flock per worker in
+    `state/builders/` so two runs never share one.
+  - `local`: plain sbuild on this machine (the default without
+    `[builders.*]`).
+  - A builder that fails before sbuild starts is marked down for 10
+    minutes and the build moves on; if every builder for the arch is
+    down the unit is `pending` (next run), not an error.
 - **Observability:**
   - `event` table
   - per-attempt `prompt.md` / `transcript.jsonl` / `usage.json` under
@@ -175,6 +190,18 @@ gpg-agent kept timing out.
   (overview, package, run, console, gates), and SSE events from a
   separate `ftbfs run` process reaching an open stream.
 - 121 tests pass, lint clean.
+
+## Distributed builds (2026-09-29)
+
+- Checked end to end: the 5 test packages reproduce with Launchpad's
+  exact signatures across `laptop` and `marsangle` (37 to 46 s for all
+  five), and a builder on an unreachable remote is marked down while
+  its build moves to another host.
+- Image copies use `lxc image copy --mode=push`: this machine's LXD
+  does not listen on the network.
+- `parallel` and `local_arches` stay in `pipeline.toml` (they are in
+  the inputs hash; removing them would re-run every reproduce and the
+  paid dev stage downstream). A builder's `parallel` overrides it.
 
 ## Open issues (fix these next, in order)
 

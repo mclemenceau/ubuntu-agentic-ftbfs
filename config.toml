@@ -30,12 +30,29 @@ components = []
 states = []
 skip_lp_bug = false
 
-# Max concurrent units per stage kind (laptop defaults).
+# Max concurrent units per stage kind (laptop defaults). Builds are
+# bounded by the builders' slots below; `build` only applies when no
+# builder is configured (plain local sbuild).
 [concurrency]
 deterministic = 8
 agent = 4
 build = 4
 outward = 1
+
+# Build hosts (docs/OPERATIONS.md, "Build hosts"). Each slot is an LXD
+# worker container built from the `ftbfs builders image` image; parallel
+# is DEB_BUILD_OPTIONS parallel per build, so slots x parallel ~ cores.
+[builders.laptop]
+kind = "lxd"
+remote = "local"
+slots = 4
+parallel = 6
+
+[builders.marsangle]
+kind = "lxd"
+remote = "marsangle"
+slots = 2
+parallel = 4
 
 [agents]
 default_backend = "opencode"

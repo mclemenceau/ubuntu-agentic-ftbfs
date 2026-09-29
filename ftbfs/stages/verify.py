@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..builder import local, outcome
+from ..builder import outcome
 from ..core.stage import Kind, Stage, StageResult, Status, UnitType, register
 from ..logs import extract
 from ..stages.reproduce import _series, extra_repositories
@@ -26,7 +26,8 @@ class VerifyStage(Stage):
 
     def eligible(self, ctx, unit_id):
         arch = ctx.item(unit_id)["arch"]
-        if arch not in ctx.options.get("local_arches", ["amd64"]):
+        if (arch not in ctx.options.get("local_arches", ["amd64"])
+                or not ctx.can_build(arch)):
             return f"no local builder for {arch} (PPA verify not yet" \
                    " supported)"
         return None
@@ -38,19 +39,11 @@ class VerifyStage(Stage):
             dev = ctx.result(uid, "dev") or {}
             adir = ctx.attempt_dir(uid)
             series = _series(ctx)
-            ctx.event("build_start", unit=uid, where="local",
-                      dsc=dev["new_dsc"])
-            b = local.build(
-                Path(dev["new_dsc"]), item["arch"], f"{series}-proposed",
-                adir / "build", extra_repositories(item["component"],
-                                                   series),
-                parallel=ctx.options.get("parallel", 8),
-                timeout=ctx.options.get("timeout", 4 * 3600),
-                idle_timeout=ctx.options.get("idle_timeout",
-                                             local.IDLE_TIMEOUT))
-            ctx.event("build_end", unit=uid, ok=b.ok,
-                      duration_s=round(b.duration_s))
-            base = {"version": dev.get("version"),
+            b = ctx.build(uid, Path(dev["new_dsc"]), item["arch"],
+                          f"{series}-proposed", adir / "build",
+                          extra_repositories(item["component"], series),
+                          dsc=dev["new_dsc"])
+            base = {"version": dev.get("version"), "builder": b.builder,
                     "duration_s": round(b.duration_s),
                     "log": str(b.log) if b.log else None}
             if b.ok:

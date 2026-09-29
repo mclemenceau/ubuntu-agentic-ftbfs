@@ -148,9 +148,10 @@ All fields are length-bounded to keep output tokens down.
 ### reproduce (item, build)
 
 Runs when triage's action is patch, investigate or report-upstream. It
-is not gated, since a local build is free: it rebuilds the failing version
-with your local sbuild against `<series>-proposed`, then compares the
-result with the Launchpad failure:
+is not gated, since a build on your own hosts is free: it rebuilds the
+failing version with sbuild against `<series>-proposed` on one of the
+builders (see "Build hosts"), then compares the result with the
+Launchpad failure:
 
 | Outcome | Meaning |
 |---|---|
@@ -162,9 +163,8 @@ result with the Launchpad failure:
 | `infra-error` | the builder failed (chroot, fetch); retried |
 
 - **Tokens:** none. About 20 s to a few minutes per build.
-- **Arches:** amd64 locally. Other arches need the PPA path.
-- **Why a gate:** builds are slow and use your machine. Approve only
-  what triage and diagnosis make worth fixing.
+- **Arches:** the arches your builders support (amd64). Other arches
+  need the PPA path, which is gated because it uploads to Launchpad.
 
 ### dev (item, LLM agent, manual gate)
 
@@ -328,12 +328,48 @@ file" instead of using another key.
 - A "verified" fix can still carry unneeded changes. Review every
   debdiff until an adversarial review stage exists.
 
-### Local builds
+### Build hosts
 
-- Reproduce and verify use your local sbuild, in unshare mode against
-  the `<series>-proposed` chroot.
-- If "reproduced" rates suddenly drop, or builds fail in chroot setup,
-  the chroot tarball is probably stale or broken. Rebuild it.
+Reproduce and verify run sbuild (unshare mode, `<series>-proposed`) on
+the builders in `config.toml`. Without a `[builders.*]` table, builds
+use your own sbuild on this machine, `[concurrency] build` at a time.
+
+With LXD, each host is one table, and each slot is a worker container
+on it:
+
+```toml
+[builders.laptop]
+kind = "lxd"
+remote = "local"      # an `lxc remote` name; local = this machine
+slots = 2
+parallel = 6          # DEB_BUILD_OPTIONS parallel per build
+
+[builders.marsangle]
+kind = "lxd"
+remote = "marsangle"
+slots = 2
+parallel = 4
+```
+
+- A build goes to the builder with the most free slots for its arch.
+  Results record it (`builder` in the reproduce and verify data; the
+  run page shows it under "Where").
+- Every host builds from the same image, so a signature mismatch is
+  never a host difference. `ftbfs builders image` builds it on the
+  first LXD builder's host (sbuild, mmdebstrap, a builder user, the
+  chroot tarball) and copies it to the others. Workers switch to a new
+  image at their next build.
+- Rebuild the image when the series changes, or when "reproduced"
+  rates suddenly drop or builds fail in chroot setup (a stale or broken
+  chroot). sbuild upgrades the chroot at the start of every build, so
+  an image a few weeks old is fine otherwise.
+- `ftbfs builders` shows each host: reachable, image, and each worker.
+- The image sets sbuild's AppArmor profile to complain mode: enforced,
+  it blocks apt's network access in the unshare chroot inside a
+  container. The container is the isolation boundary.
+- A worker is force-restarted the first time a run uses it and after
+  a killed build, so nothing from a crashed or killed build survives.
+- Adding a host: `lxc remote add <name> <address>`, then a table.
 
 ### Disk
 

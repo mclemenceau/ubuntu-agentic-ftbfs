@@ -25,7 +25,7 @@
 <tr><td>{{ a.stage }}</td><td class="mono">{{ unit_link(a.unit, a.stage) }}</td><td>{{ a.model }} ({{ a.tier }})</td><td>{{ a.elapsed_s|ago }}</td><td><a href="/console?dir={{ a.attempt_dir|urlq }}">console</a></td></tr>
 {% endfor %}</table>
 {% else %}<p class="muted small">none</p>{% endif %}
-<h3>Builds in flight ({{ s.builds|length }}{% if slots.get('build') %} of {{ slots.build }} slots{% endif %})</h3>
+<h3>Builds in flight ({{ s.builds|length }} of {{ slots }} slots)</h3>
 {% if s.builds %}
 <table><tr><th>Stage</th><th>Unit</th><th>Where</th><th>Elapsed</th></tr>
 {% for b in s.builds %}

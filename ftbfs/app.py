@@ -14,12 +14,13 @@ from pathlib import Path
 
 from .agents import make_backend
 from .agents.base import running_pid
+from .builder.pool import BuilderPool, make_pool
 from .config import Config, load_config
 from .core.context import Paths, Units
 from .core.pipeline import Pipeline
 from .core.pipeline import load as load_pipeline
 from .core.scheduler import Cancelled, Scheduler
-from .core.stage import discover
+from .core.stage import Kind, discover
 from .db import DB, PENDING_GATES, now
 from .filters import Filter, all_items, select
 from .ingest import fetch, parse, read_html
@@ -31,6 +32,7 @@ class App:
         self.config: Config = load_config(root)
         self.db = DB(self.config.db_path)
         self._pipeline: Pipeline | None = None
+        self._builders: BuilderPool | None = None
 
     @property
     def registry(self):
@@ -56,6 +58,61 @@ class App:
         return {n: make_backend(n, {"state_dir": self.config.state_dir,
                                     **self.config.backends.get(n, {})})
                 for n in names}
+
+    @property
+    def builders(self) -> BuilderPool:
+        if self._builders is None:
+            self._builders = make_pool(
+                self.config.builders,
+                self.config.concurrency.get(Kind.BUILD, 4),
+                self.config.state_dir)
+        return self._builders
+
+    def lxd_builders(self) -> list:
+        from .builder.lxd import LxdBuilder
+
+        return [b for b in self.builders.builders
+                if isinstance(b, LxdBuilder)]
+
+    def build_builder_image(self, log=print) -> str:
+        """Build the LXD builder image on the first LXD builder's host
+        for the latest snapshot's series, and copy it to the others.
+        Workers pick it up (are recreated) at their next build."""
+        from .builder.lxd import build_image
+
+        lxds = self._lxd_builders_or_fail()
+        snap = self.db.one(
+            "SELECT series FROM snapshot ORDER BY id DESC LIMIT 1")
+        if snap is None:
+            raise ValueError("no snapshot yet: run `ftbfs ingest` first")
+        arches = sorted({a for b in lxds for a in b.arches})
+        first = lxds[0]
+        build_image(first.lxd, snap["series"], arches, first.image,
+                    log=log)
+        return self.sync_builder_image(log)
+
+    def sync_builder_image(self, log=print) -> str:
+        """Copy the first LXD builder host's image to the other hosts
+        (e.g. after adding one)."""
+        from .builder.lxd import LxdError, copy_image
+
+        lxds = self._lxd_builders_or_fail()
+        first = lxds[0]
+        fp = first.lxd.image(first.image)
+        if fp is None:
+            raise LxdError(f"{first.remote}: no {first.image} image; run"
+                           " `ftbfs builders image`")
+        for b in {b.remote: b for b in lxds}.values():
+            if b.remote != first.remote:
+                log(f"{b.remote}: image {fp[:12]}")
+                copy_image(first.lxd, b.lxd, first.image)
+        return fp
+
+    def _lxd_builders_or_fail(self) -> list:
+        lxds = self.lxd_builders()
+        if not lxds:
+            raise ValueError("no LXD builders in config.toml")
+        return lxds
 
     # -- ingest -----------------------------------------------------------
 
@@ -122,7 +179,7 @@ class App:
             self.db, self.pipeline, units, self.backends(),
             Paths(self.config.root, self.config.work_dir,
                   self.config.cache_dir),
-            self.config.concurrency, run_id,
+            self.config.concurrency, run_id, self.builders,
         )
 
     def reap_stale_runs(self) -> list[int]:

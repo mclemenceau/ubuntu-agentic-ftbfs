@@ -9,7 +9,9 @@ from pathlib import Path
 import pytest
 
 from ftbfs.builder import local, outcome
-from ftbfs.builder.local import sbuild_command
+from ftbfs.builder.base import BuilderUnavailable
+from ftbfs.builder.local import LocalBuilder, sbuild_command
+from ftbfs.builder.pool import BuilderPool
 from ftbfs.core.context import Paths, Units
 from ftbfs.core.pipeline import build
 from ftbfs.core.scheduler import Scheduler
@@ -59,7 +61,8 @@ def env(db, snapshot, tmp_path, monkeypatch):
     return db, item, tmp_path, ex
 
 
-def run_repro(db, items, tmp_path, excerpts, options=None, run_id=None):
+def run_repro(db, items, tmp_path, excerpts, options=None, run_id=None,
+              builders=None):
     from ftbfs.core.stage import Kind, Stage, StageResult, Status, UnitType
 
     class Excerpt(Stage):
@@ -74,7 +77,7 @@ def run_repro(db, items, tmp_path, excerpts, options=None, run_id=None):
     pipeline = build({"stage": conf}, registry, "fake")
     paths = Paths(tmp_path, tmp_path / "work", tmp_path / "cache")
     return Scheduler(db, pipeline, Units(items, db), {}, paths,
-                     run_id=run_id).run()
+                     run_id=run_id, builders=builders).run()
 
 
 def result(db, uid):
@@ -90,6 +93,9 @@ def test_local_reproduced_same_signature(env):
     status, data = result(db, item["id"])
     assert data["outcome"] == outcome.REPRODUCED
     assert data["where"] == "local" and data["signature"] == ex["signature"]
+    assert data["builder"] == "local"
+    start = db.one("SELECT payload FROM event WHERE type='build_start'")
+    assert json.loads(start["payload"])["where"] == "local"
     build_dir = Path(data["log"]).parent
     assert not list(build_dir.glob("*.deb"))  # binaries cleaned up
     assert (build_dir / "command.txt").read_text().startswith("sbuild")
@@ -123,6 +129,46 @@ def test_foreign_arch_without_ppa_is_not_eligible(env):
     item = dict(item, arch="s390x", id=item["id"].replace("amd64",
                                                            "s390x"))
     totals = run_repro(db, [item], tmp, {item["id"]: ex})
+    assert totals == {"excerpt": {"ok": 1}}
+
+
+class DownBuilder(LocalBuilder):
+    def build(self, *a, **kw):
+        raise BuilderUnavailable("host unreachable")
+
+
+def test_build_moves_to_another_builder_when_one_is_down(env):
+    db, item, tmp, ex = env
+    pool = BuilderPool([DownBuilder("down", 4), LocalBuilder("up", 1)])
+    totals = run_repro(db, [item], tmp, {item["id"]: ex}, builders=pool)
+    assert totals["reproduce"] == {"ok": 1}
+    status, data = result(db, item["id"])
+    assert data["builder"] == "up" and data["outcome"] == outcome.REPRODUCED
+    down = db.one("SELECT payload FROM event WHERE type='builder_down'")
+    assert json.loads(down["payload"])["builder"] == "down"
+    assert pool.down() == {"down": "host unreachable"}
+
+
+def test_all_builders_down_waits_for_the_next_run(env):
+    db, item, tmp, ex = env
+    pool = BuilderPool([DownBuilder("down", 1)])
+    totals = run_repro(db, [item], tmp, {item["id"]: ex}, run_id=1,
+                       builders=pool)
+    # pending, not error: a host outage must not use up the error cap
+    assert totals["reproduce"] == {"pending": 1}
+    status, data = result(db, item["id"])
+    assert data["phase"] == "waiting-for-builder"
+    assert "every builder for amd64 is down" in data["reason"]
+    # the next run, with the host back, builds it
+    totals = run_repro(db, [item], tmp, {item["id"]: ex}, run_id=2)
+    assert totals["reproduce"] == {"ok": 1}
+
+
+def test_arch_no_builder_supports_is_not_eligible(env):
+    db, item, tmp, ex = env
+    item = dict(item, arch="i386", id=item["id"].replace("amd64", "i386"))
+    totals = run_repro(db, [item], tmp, {item["id"]: ex},
+                       {"local_arches": ["amd64", "i386"]})
     assert totals == {"excerpt": {"ok": 1}}
 
 
