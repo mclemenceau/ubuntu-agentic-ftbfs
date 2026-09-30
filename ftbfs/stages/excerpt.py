@@ -11,7 +11,7 @@ class ExcerptStage(Stage):
     name = "excerpt"
     kind = Kind.DETERMINISTIC
     unit = UnitType.ITEM
-    version = "4"  # bump when logs.extract() changes
+    version = "5"  # bump when logs.extract() changes
     description = "Fetch the build log and extract the failure excerpt"
 
     def run(self, ctx, unit_ids):

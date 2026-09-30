@@ -18,7 +18,12 @@
 #   fail_stage  optional: only when sbuild's Fail-Stage equals this
 #   hint        short known-fix knowledge handed to diagnosis prompts
 #
-# New rules proposed by LLM stages land in the review queue first.
+# Maintained by hand: nothing proposes rules automatically. Editing this
+# file re-classifies every item on the next run (the file digest is the
+# classify cache key); triage and diagnose re-run only for clusters whose
+# members or rule hint changed. When to edit: unknown (`sig:`) clusters
+# spanning several packages, or clusters that diagnose reports as mixed
+# (applies_to_all_members = false).
 
 # -- dependencies / infrastructure ------------------------------------------
 
@@ -87,9 +92,9 @@ hint = "Package hard-codes -D_FORTIFY_SOURCE=2 while dpkg now sets 3; drop the p
 id = "cf-protection-unsupported"
 class = "cf-protection-unsupported"
 family = "toolchain"
-match = '''['‘]-fcf-protection=\w+['’] is not supported for this target'''
-cluster_by = "class"
-hint = "Package forces -fcf-protection on an arch without CET support; make it x86-only."
+match = '''['‘]-fcf-protection(=\w+)?['’] is not (supported for|compatible with) this target'''
+cluster_by = "package"
+hint = "-fcf-protection reaches a target without CET: a non-x86 arch, or a 32-bit/bare-metal sub-build (BIOS, firmware). Make the flag x86-64-only, or filter it out of that sub-build's CFLAGS."
 
 [[rule]]
 id = "missing-compiler"
@@ -108,6 +113,14 @@ family = "arch"
 match = '''does not support (your|this) arch|not supported on this arch|Architecture ['‘]\S+['’] not recognized|unsupported (architecture|platform)|#error .*\b(arch|architecture)\b'''
 cluster_by = "signature"
 hint = "Upstream does not support this architecture: port, or restrict Architecture: in debian/control and remove the binaries."
+
+[[rule]]
+id = "ocaml-no-native"
+class = "ocaml-no-native-compiler"
+family = "arch"
+match = '''ocamlfind: Not supported in your configuration: ocamlopt'''
+cluster_by = "class"
+hint = "No native OCaml compiler (ocamlopt) on this arch; OCaml 5 dropped 32-bit native backends. Build bytecode-only (check `ocamlfind ocamlopt` availability, dh-ocaml's OCAML_HAVE_OCAMLOPT) or restrict Architecture to ocaml-native arches."
 
 # -- C/C++: GCC 15 / C23 / glibc ---------------------------------------------
 
@@ -172,7 +185,7 @@ id = "incompatible-pointer-types"
 class = "incompatible-pointer-types"
 family = "compile"
 match = '''incompatible[- ]pointer[- ]types|incompatible pointer type'''
-cluster_by = "class"
+cluster_by = "signature"
 hint = "GCC 14+ makes -Wincompatible-pointer-types an error."
 
 [[rule]]
@@ -310,6 +323,14 @@ family = "packaging"
 match = '''Permission denied'''
 cluster_by = "signature"
 hint = "Script lost its executable bit (patch or tarball); chmod in debian/rules."
+
+[[rule]]
+id = "no-binary-artifacts"
+class = "no-binary-artifacts"
+family = "packaging"
+match = '''dpkg-genbuildinfo: error: binary build with no binary artifacts found'''
+cluster_by = "package"
+hint = "Nothing was built for this arch: every binary is excluded by Architecture:, Build-Profiles (e.g. <!noudeb> with -Pnoudeb) or package lists. Fix debian/control, or stop building on this arch."
 
 # -- tests (generic; keep last) ------------------------------------------------
 

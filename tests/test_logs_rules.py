@@ -46,6 +46,18 @@ CASES = {
                "test-failure", "test-failure:sig:"),
     33005518: ("build", "dh_auto_test", "error[E0425]",
                "rust-compile-error", "rust-compile-error:sig:"),
+    # bare crash message says nothing about the cause: never cross-package
+    33435719: ("build", "dh_auto_build", "Aborted (core dumped)",
+               "unknown", "sig:"),
+    # GCC's other wording of the same -fcf-protection error
+    33494108: ("build", "dpkg-buildpackage", "is not compatible with this",
+               "cf-protection-unsupported",
+               "cf-protection-unsupported:pkg:somepkg"),
+    33607715: ("build", "dh_auto_build", "ocamlopt",
+               "ocaml-no-native-compiler", "ocaml-no-native-compiler"),
+    # udeb-only source built with -Pnoudeb: nothing to package
+    32793637: ("build", "dpkg-genbuildinfo", "no binary artifacts",
+               "no-binary-artifacts", "no-binary-artifacts:pkg:somepkg"),
 }
 
 
@@ -69,6 +81,20 @@ def test_generic_signature_is_per_package(rules):
     a = rules.classify(e, "pkg-a").cluster_id
     b = rules.classify(e, "pkg-b").cluster_id
     assert a != b and a.endswith(":pkg:pkg-a")
+
+
+def test_crash_message_is_per_package(rules):
+    e = ex(33435719)
+    assert e.generic
+    assert rules.classify(e.to_dict(), "td").cluster_id.endswith(":pkg:td")
+
+
+def test_signature_stable_across_machine_names():
+    # drawterm on arm64 and armhf: "posix-aarch64" vs "posix-armv7l"
+    a, b = ex(32793910), ex(32794110)
+    assert "aarch64" in a.key_lines[0] and "armv7l" in b.key_lines[0]
+    assert a.signature == b.signature
+    assert normalize("posix-ppc64le x86_64 i686") == "posix-ARCH ARCH ARCH"
 
 
 def test_generic_key_line_never_groups_packages(rules):

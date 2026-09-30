@@ -104,7 +104,9 @@ GENERIC_KEY = re.compile(
     r"|The following tests FAILED:"
     r"|dh_missing: error: missing files"
     r"|^E: (Package installation failed|Unable to satisfy dependencies)"
-    r"|apt-get failed|Some test\(s\) failed|^# (FAIL|ERROR):)"
+    r"|apt-get failed|Some test\(s\) failed|^# (FAIL|ERROR):"
+    r"|^(Aborted|Segmentation fault|Bus error|Illegal instruction)"
+    r"( \(core dumped\))?$)"
 )
 # CMakeCache.txt dumped by dh_auto_configure after a failed configure.
 _CMAKE_CACHE = re.compile(
@@ -386,6 +388,9 @@ _NORMALIZERS: list[tuple[re.Pattern, str]] = [
                 r"i386)-linux-gnu\w*\b"), "TRIPLET"),
     (re.compile(r"\b(amd64v3|amd64|arm64|armhf|ppc64el|s390x|riscv64|"
                 r"i386)\b"), "ARCH"),
+    # kernel machine names (uname -m), e.g. "posix-aarch64"
+    (re.compile(r"\b(x86_64|aarch64|armv[5-8]\w*|ppc64le|ppc64|"
+                r"powerpc64le|i[3-6]86|loongarch64)\b"), "ARCH"),
     (re.compile(r"\b0x[0-9a-fA-F]+\b"), "HEX"),
     (re.compile(r"\b[0-9a-f]{12,}\b"), "HEX"),
     (re.compile(r"\b\d+(\.\d+)+[\w.~+-]*"), "VER"),
