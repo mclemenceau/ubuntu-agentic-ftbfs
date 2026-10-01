@@ -1,8 +1,9 @@
 # Operating the ftbfs pipeline
 
 How to run the system day to day, what to review and what to watch. All
-commands are `uv run ftbfs ...` from the project root. See `README.md`
-for what each command does and `docs/HANDOFF.md` for the project status.
+commands are `uv run ftbfs ...` from the project root (or `--root DIR`).
+See `README.md` for the installation, `DESIGN.md` for why it works
+this way and `STATUS.md` for the roadmap.
 
 ## Mental model
 
@@ -43,6 +44,84 @@ It holds:
 - `[builders.*]`: the build hosts (see "Build hosts").
 - `[web] allowed_hosts`: the host names the web UI answers to
   (loopback by default; any other Host header gets 403).
+- `[agents] default_backend`: see "Choosing the agent backend".
+
+## Commands
+
+`ftbfs --help` lists them all, and `ftbfs <command> --help` their
+options.
+
+**Selecting items.** `list`, `run`, `export`, `clusters`, `signals`,
+`verdicts` and `report` work on a selection. Its defaults come from
+`[filter]` in `config.toml`; flags override them: `--component`,
+`--state F`, `--arch`, `--pocket`, `--packageset`, `--team`,
+`--source 'python-*'`, `--include-bugged`, `--limit`, `--profile NAME`
+(a named set from `[filter.profiles]`), and `--sample-clusters N --seed
+S` for random whole clusters.
+
+**Running.**
+- `ingest`: fetch and parse the FTBFS page, save a snapshot in
+  `state/snapshots/` and diff it with the previous one
+- `run`: one pass of the pipeline over the selection; `--ingest`
+  fetches first, `--until STAGE` stops after a stage, `--stage STAGE`
+  runs only that one
+- `report`: write `work/<src>/<ver>/investigation.md` (no tokens)
+- `export --out ftbfs.json`: the selection as JSON, with build and log
+  URLs
+- `serve`: the web UI, on <http://127.0.0.1:8047> by default
+
+**Seeing what happens.**
+
+| Command | Shows |
+|---|---|
+| `status` | runs, latest result per stage, gates, cost |
+| `why <source or item>` | filter exclusions, then the decision per stage (waiting, `when` false, gated, cached, ...) |
+| `show <source>` | event timeline and stage results |
+| `tail -f [--unit X] [--stage Y]` | live event stream |
+| `clusters` | failure clusters and the rule hit rate |
+| `signals [-v] [--signal S]` | packages per Debian facts signal |
+| `verdicts` | triage and diagnosis per cluster |
+| `stages` | registered stages and the pipeline as configured |
+| `builders` | build hosts, their image and workers |
+
+**Deciding.**
+- `approve <stage> <unit...> [--reject --note "reason"]`
+- `retry <stage> <unit...>`: re-run a stage on the next `run`
+- `control pause|resume|cancel`: the run in progress
+
+A unit is a source name (all its items), an item
+(`source/version/arch`) or a cluster id, depending on the stage.
+
+Artifacts live under `work/<source>/<version>/<arch>/<stage>/`. For
+agent stages that includes `attempt-N/` with `prompt.md`,
+`transcript.jsonl`, `result.json` and `usage.json`.
+
+## The web UI
+
+`ftbfs serve` is a separate process over the same database, so it can
+be restarted at any time without disturbing a run. Its controls go
+through the same code as the CLI and are recorded as events. Pages:
+- **Next steps** (`/`): verified fixes to review, accepted fixes to
+  upload, units that need a human, gates to approve grouped by
+  diagnosis, syncs and merges from Debian, and a preview of what the
+  next run would do, with a button to start it. A disposition on a
+  source version (accepted, uploaded, rejected as "won't fix", handled)
+  takes it out of the inbox and out of later runs.
+- **Pipeline** (`/overview`): the latest snapshot and its delta, the
+  DAG with counts per stage, the runs
+- **Run**: live counters, agents and builds in flight with the host
+  they run on, running cost, event stream, pause, resume and cancel
+- **Console**: an agent's transcript as it streams, and a kill button
+- **Package**: the investigation report, pipeline dots per arch, `why`
+  per stage with approve and retry, every attempt's artifacts (prompt,
+  transcript, debdiff, build log) and the timeline
+- **Gates** and **Attention** (errors, needs-human, exhausted loops)
+- **Items**, **Clusters**, **Signals**, **Costs** (by stage, model, run
+  and package) and **Snapshots** (new, regressed, gone between any two)
+
+`investigation.md` is stitched from one Jinja partial per stage
+(`ftbfs/templates/stages/<stage>.md.j2`) in DAG order; the summary and
+the recommended next action are derived from the results.
 
 ## The pipeline, stage by stage
 
@@ -145,7 +224,7 @@ The rest go to the model about 12 per call. Each cluster is sent as a
 compact context pack: the representative item's excerpt (amd64
 preferred), a few key lines from other members, and the package facts.
 
-- **Tokens:** about $0.007 per cluster
+- **Tokens:** about $0.003 per cluster
 - **Re-runs:** when `prompts/triage.md` changes, or the cluster's
   inputs change
 - **Watch:** `ftbfs verdicts`
@@ -163,7 +242,7 @@ the same context pack plus the triage verdict. It returns:
 
 All fields are length-bounded to keep output tokens down.
 
-- **Tokens:** about $0.05 per cluster
+- **Tokens:** about $0.03 per cluster
 - **Re-runs:** when `prompts/diagnose.md` or triage changes
 
 ### reproduce (item, build)
@@ -209,7 +288,8 @@ large tier.
 
 - **Output:** `work/<src>/<ver>/<arch>/dev/attempt-N/`: `fix.debdiff`,
   `edits.diff`, and the agent's prompt, transcript and notes
-- **Tokens:** about $0.07 to $0.25 per attempt, capped at $2
+- **Tokens:** about $0.10 per attempt on the medium tier, $0.27 on
+  the large one, capped at $2
 - **needs-human:** when the agent makes no change
 - **Errors:** `max_errors = 1`, so an API error is not retried on its
   own. Use `ftbfs retry dev <item>`.
@@ -226,13 +306,8 @@ Rebuilds dev's new source package with the same sbuild setup:
 - **Watch:** Attention for exhausted loops. "Verified" means it builds,
   not that the change is minimal: review every debdiff.
 
-### Planned stages
-
-Not implemented yet (see `docs/HANDOFF.md`):
-- `confirm`: check mixed clusters and propose new rules
-- `adversarial_review`: review the verified debdiff, looping back to
-  dev on failure
-- `lp_file_bug`: an outward stage, always gated
+Planned stages (an adversarial review of verified debdiffs, filing
+bugs, rule proposals) are listed in `STATUS.md`, "Roadmap".
 
 ## When to run
 
@@ -243,26 +318,50 @@ Not implemented yet (see `docs/HANDOFF.md`):
 | After editing `rules.toml` or `prompts/*.md` | `ftbfs run --sample-clusters 30 --seed 1`, then a full `run` | An edit re-runs only the affected stage and what follows it. |
 | Start of a review cycle | `ftbfs report` | Regenerates `work/<src>/<ver>/investigation.md` (no tokens). |
 
-### First full run
+### The first full run
 
-Until the first full run, triage and diagnose have covered only a sample
-of clusters. The whole default selection (about 1058 items, 411
-clusters) is projected at about $15. Do it once, deliberately:
+On a new database, the first run over the whole default selection
+pays for every cluster at once: about 1000 items and 400 clusters,
+which cost $9 for triage and diagnose on 2026-09-27 (opencode). Try a
+sample first (see "Choosing the agent backend"), then do it once,
+deliberately:
 
 ```sh
 uv run ftbfs run --ingest --until diagnose
 uv run ftbfs status
 ```
 
-After that, daily runs are incremental.
+After that, daily runs are incremental: tokens are spent only on new
+or changed clusters.
 
 ### Choosing the agent backend
 
-`[agents] default_backend` in `config.toml` picks `claude` (`claude -p`,
-your Claude subscription or key) or `opencode` (`opencode run`, e.g. an
-OpenRouter key). The tier models are under `[backend.<name>.tiers]`.
-Changing the backend
-re-runs the agent stages on the next run, so compare on a sample before
+`[agents] default_backend` picks the backend for every agent stage:
+`opencode` (the default in `config.toml`) or `claude`. Set it in
+`config.local.toml` to change it for your site, or set one stage's
+`agent = { backend = "...", ... }` in `pipeline.toml`. Stages ask for
+a tier (`small`, `medium`, `large`), which `[backend.<name>.tiers]`
+maps to a model.
+
+- **opencode** runs `opencode run --format json` with models as
+  `provider/model` ids (`openrouter/anthropic/claude-sonnet-5`). Its key
+  comes from a dedicated file (see below); providers without an entry
+  in `api_keys` use opencode's own login. It runs with a private config
+  home under `state/opencode/`, and its sessions are kept in opencode's
+  database, titled `ftbfs <unit>/<stage>/attempt-N`.
+- **claude** runs `claude -p` with your Claude Code login or key.
+
+Both run isolated from your own setup (DESIGN, "Isolated agents").
+Per stage, `agent = {...}` can also set:
+- `effort` (low to max): thinking tokens dominate output cost. claude
+  passes it as `--effort`; opencode maps it to the model's `--variant`,
+  which is not calibrated the same way (Sonnet at `medium` often does
+  not think, hence diagnose at `high`).
+- `max_budget_usd`: the agent is stopped beyond it.
+- `timeout`, and `max_turns` (unset: the backend's own limit).
+
+The agent spec is part of the cache key, so changing the backend
+re-runs the agent stages on the next run. Compare on a sample before
 switching a full run:
 
 ```sh
@@ -293,7 +392,10 @@ file" instead of using another key.
 1. `ftbfs run --ingest`
 2. `ftbfs serve` and open <http://127.0.0.1:8047>, or use the CLI
    equivalents:
-   - **Overview:** the snapshot delta (new, regressed, gone). New
+   - **Next steps:** the inbox. It lists verified fixes to review,
+     gates to approve and Debian syncs, and has a preview of the next
+     run.
+   - **Pipeline:** the snapshot delta (new, regressed, gone). New
      regressions are the most useful signal.
    - **Gates:** dev waits for you once reproduce has confirmed the
      failure. Approve the ones whose triage, diagnosis and reproduce
@@ -314,8 +416,9 @@ file" instead of using another key.
 
 - Check `ftbfs status` (total) or the Costs page (by stage, model, run
   and package).
-- Typical costs: triage about $0.007 per cluster, diagnose about $0.05
-  per cluster, dev about $0.07 to $0.25 per attempt.
+- Typical costs (opencode, 2026-09-30): triage about $0.003 per
+  cluster, diagnose about $0.03 per cluster, dev about $0.10 to $0.27
+  per attempt, or $0.36 per verified fix counting retries.
 - A dev attempt close to its `max_budget_usd` (2.0) means the agent is
   thrashing.
 - If a running agent looks stuck, the Console page has a kill button.
@@ -354,7 +457,14 @@ file" instead of using another key.
 Reproduce and verify run sbuild (unshare mode, `<series>-proposed`) on
 the builders in `config.local.toml`. Without a `[builders.*]` table,
 builds use your own sbuild on this machine, `[concurrency] build` at a
-time.
+time. That needs `sbuild`, `mmdebstrap` and `uidmap`, unshare mode
+(`$chroot_mode = 'unshare';` in `~/.config/sbuild/config.pl`) and the
+chroot tarball `~/.cache/sbuild/<series>-proposed-amd64.tar` (README,
+"Quick start", has the command). sbuild upgrades the chroot at the
+start of every build, so the tarball only needs remaking when the
+series changes. Package code runs in sbuild's chroot as your user, so
+prefer LXD builders on a machine that holds anything of value
+(`SECURITY.md`, "Builds").
 
 With LXD, each host is one table, and each slot is a worker container
 on it:
@@ -421,3 +531,5 @@ restarted at any time without disturbing a run.
 - **Local only:** the UI has no authentication. It binds to loopback
   and answers only to the host names in `[web] allowed_hosts`
   (loopback by default). Do not expose it.
+
+What is planned to lift these is in `STATUS.md`, "Roadmap".

@@ -13,12 +13,9 @@
 #   on_fail = { goto = "<upstream stage>", max_loops = 2 }
 #   any other key is passed to the stage as an option.
 #
-# Stages are enabled here milestone by milestone as they are implemented.
-# Target default pipeline:
-#
-#   excerpt -> classify (+cluster) -> facts -> triage -> diagnose
-#     -> confirm -> reproduce -> [gate] dev -> verify
-#     -> adversarial_review (on_fail: dev) -> [gate] lp_file_bug
+# Options, agent specs and versions are part of each result's cache key:
+# changing one re-runs that stage and everything after it. Planned
+# stages are listed in docs/STATUS.md, "Roadmap".
 
 [stage.excerpt]
 

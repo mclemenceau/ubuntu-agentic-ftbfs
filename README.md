@@ -1,241 +1,189 @@
 # ftbfs - agentic review of Ubuntu FTBFS
 
-Reviews the failures listed on <http://qa.ubuntuwire.com/ftbfs/> through a
-pipeline of stages. Most stages are deterministic; LLM agents only run
-where judgement is needed, on small precomputed inputs.
+The Ubuntu development series carries around a thousand packages that
+fail to build from source (FTBFS) at any time, listed on
+<http://qa.ubuntuwire.com/ftbfs/>. Each one starts with someone reading
+a long build log. Most share a few causes (a new compiler, glibc or
+CMake, a missing dependency) and many are already fixed in Debian.
+
+ftbfs reviews that list for you. It cuts every log down to the failure,
+groups failures with the same cause, checks Debian, and asks LLM agents
+for a verdict and a diagnosis once per group. Then it reproduces the
+failure with sbuild and, for the packages you approve, has an agent
+write a fix. Code turns that fix into a debdiff and sbuild builds it.
+You review the result and decide what to upload. Nothing is filed or
+uploaded automatically.
+
+Most of the pipeline is plain code; LLMs only run where judgement is
+needed, on small inputs, on the cheapest model that does the job. On
+the live instance, triage and diagnosis of all 410 clusters cost $9 in
+tokens, and 38 of the 44 fixes attempted built (86%), at $0.36 of agent
+time per built fix (2026-09-30; see `docs/DESIGN.md`, "Evidence").
+
+![The Next steps page: verified fixes to review, gates to approve, syncs from Debian](docs/images/next-steps.png)
+
+## What a result looks like
+
+Every package gets an investigation report (`ftbfs report`, also on its
+page in the UI). Shortened, for hexcurse:
+
+> **hexcurse 1.60.0-2: FTBFS investigation**
+>
+> strstr/strchr return const char*; assignments discard const
+> qualifier. Diagnosis: code-patch, risk low, confidence 0.9.
+>
+> **Recommended next action:** upload the verified fix: 1.60.0-2ubuntu1
+> builds on amd64.
+>
+> **Classification:** `c23-const-qualifier` (compile), shared with 5
+> other packages. Rule hint: glibc/C23 const-preserving strchr/strrchr/
+> memchr etc. now return const char*: fix the variable types.
+>
+> **Debian:** [#1128548](https://bugs.debian.org/1128548) "FTBFS with
+> glibc 2.43 due to ISO C23 const return types", pending.
+>
+> **Reproduction:** amd64, reproduced, 22 s.
+>
+> **Proposed fix:** `d/p/getopt-c23-const-strchr.patch`, with a DEP-3
+> header, a changelog entry and `update-maintainer`:
+> ```diff
+> -    char *temp = my_index (optstring, c);
+> +    const char *temp = my_index (optstring, c);
+> ```
+> Notes for the reviewer: `temp` is never written through, so the
+> change needs no cast elsewhere.
+>
+> **Verification:** 1.60.0-2ubuntu1 built on amd64 in 24 s.
+
+## How it works
+
+```
+ingest -> excerpt -> classify --+
+          facts ----------------+-> triage -> diagnose --+
+                                     |                   v
+                                     +-> reproduce -> [gate] dev <-> verify
+```
+
+| Stage | Does | Tokens |
+|---|---|---|
+| excerpt | cuts the Launchpad log to the failure, ~3 KB | none |
+| classify | `rules.toml` gives a failure class and a cluster | none |
+| facts | Debian versions, bugs, reproducible builds | none |
+| triage | per cluster: category, fixable, action | small model |
+| diagnose | per cluster: root cause, fix strategy, risk | medium model |
+| reproduce | rebuilds the failing version with sbuild | none |
+| dev | after your approval, an agent edits the source | medium/large |
+| verify | builds the fix; on failure back to dev, twice | none |
+
+Stages are plugins in a DAG (`pipeline.toml`), and results are cached
+by their inputs, so running again only does new work. `docs/DESIGN.md`
+explains each decision.
+
+## Requirements
+
+- An Ubuntu machine, Python 3.12 or later, and
+  [uv](https://docs.astral.sh/uv/).
+- Packaging tools: `sudo apt install dpkg-dev devscripts quilt
+  ubuntu-dev-tools`.
+- To reproduce and verify builds (amd64): sbuild in unshare mode on
+  this machine (`sudo apt install sbuild mmdebstrap uidmap`, set up
+  below), or LXD hosts (`docs/OPERATIONS.md`, "Build hosts").
+- For the agent stages, one of:
+  - [opencode](https://opencode.ai) with an
+    [OpenRouter](https://openrouter.ai) key (the default)
+  - the [Claude Code](https://claude.com/claude-code) CLI, `claude`,
+    logged in
+
+Everything up to `classify` and `facts` needs none of the build or
+agent tools.
 
 ## Quick start
 
 ```sh
+git clone https://github.com/mclemenceau/ubuntu-agentic-ftbfs
+cd ubuntu-agentic-ftbfs
 uv sync
-cp config.local.toml.example config.local.toml   # then edit it
-uv run ftbfs ingest                  # fetch + parse + diff the page
+cp config.local.toml.example config.local.toml
+```
+
+Edit `config.local.toml`: your name and email in `[identity]` (they sign
+the changelog entries), and delete the `[builders.*]` tables unless you
+have LXD hosts. `config.toml` holds the project defaults, and
+`config.local.toml` (git-ignored) is merged over it.
+
+Look at the list, with no tokens spent:
+
+```sh
+uv run ftbfs ingest                  # fetch and parse the FTBFS page
 uv run ftbfs list --by arch          # what the default filter selects
-uv run ftbfs run                     # run the pipeline on the selection
+uv run ftbfs run --until classify    # excerpts and clusters
+uv run ftbfs run --stage facts       # Debian facts per package
 uv run ftbfs clusters                # failure clusters, rule hit rate
-uv run ftbfs signals -v              # Debian/upstream facts per package
-uv run ftbfs verdicts                # triage + diagnosis per cluster
-uv run ftbfs status                  # runs, per-stage counts, gates, cost
-uv run ftbfs builders                # build hosts, image, workers
+uv run ftbfs signals                 # sync candidates, Debian bugs, ...
 ```
 
-`config.toml` holds the project defaults; `config.local.toml`
-(git-ignored) holds this machine's settings and is merged over it (see
-`docs/OPERATIONS.md`, "Site configuration").
-
-The selection defaults come from `config.toml` (`[filter]`). The CLI flags
-override them: `--component`, `--state F`, `--arch`, `--pocket`,
-`--packageset`, `--team`, `--source 'python-*'`, `--include-bugged`,
-`--limit`, `--profile NAME`.
-
-Day-to-day operation (cadence, review routine, what to watch) is in
-`docs/OPERATIONS.md`.
-
-`ftbfs export --out ftbfs.json` writes the selection as JSON, including
-build and log URLs. Every ingest also keeps a full snapshot in
-`state/snapshots/`.
-
-## Seeing what happens
-
-| Command | Shows |
-|---|---|
-| `ftbfs why <source or item>` | filter exclusions, then per-stage decision (waiting, `when` false, gated, cached, ...) |
-| `ftbfs show <source>` | event timeline and stage results |
-| `ftbfs tail -f [--unit X] [--stage Y]` | live event stream |
-| `ftbfs status` | runs and latest result per unit/stage |
-
-Artifacts live under `work/<source>/<version>/<arch>/<stage>/`. For agent
-stages that includes `attempt-N/{prompt.md,transcript.jsonl,result.json,
-usage.json}`.
-
-Control commands:
-- `ftbfs approve <stage> <unit...> [--reject]`
-- `ftbfs retry <stage> <unit...>`
-- `ftbfs control pause|resume|cancel`
-
-## Web UI and reports
+For the agent stages with opencode, put an OpenRouter key with a credit
+limit in the file `config.local.toml` points at:
 
 ```sh
+mkdir -p ~/.config/ftbfs
+install -m 600 /dev/null ~/.config/ftbfs/openrouter.key
+"$EDITOR" ~/.config/ftbfs/openrouter.key     # paste the key, one line
+```
+
+(or set `default_backend = "claude"` under `[agents]` in
+`config.local.toml` to use the `claude` CLI). Then try a few clusters:
+
+```sh
+uv run ftbfs run --sample-clusters 5 --seed 1 --until diagnose
+uv run ftbfs verdicts --sample-clusters 5 --seed 1
+uv run ftbfs status                  # what it cost
+```
+
+To reproduce failures and have fixes written, set up sbuild once:
+unshare mode in `~/.config/sbuild/config.pl`,
+
+```perl
+$chroot_mode = 'unshare';
+```
+
+and a chroot tarball for the development series with `-proposed`
+enabled, as Launchpad builds it (a few minutes):
+
+```sh
+series=$(distro-info --devel)
+A=http://archive.ubuntu.com/ubuntu
+mkdir -p ~/.cache/sbuild
+mmdebstrap --mode=unshare --variant=buildd --arch=amd64 \
+  --include=ca-certificates "$series" \
+  ~/.cache/sbuild/"$series"-proposed-amd64.tar \
+  "deb $A $series main universe" "deb $A $series-updates main universe" \
+  "deb $A $series-proposed main universe"
+```
+
+```sh
+uv run ftbfs run --source hexcurse   # reproduce; dev waits at its gate
+uv run ftbfs approve dev hexcurse
+uv run ftbfs run --source hexcurse   # dev, then verify
 uv run ftbfs serve                   # http://127.0.0.1:8047
-uv run ftbfs report --source xfaces  # work/<src>/<ver>/investigation.md
 ```
 
-The UI is a separate process over the same SQLite database (WAL), so it
-can be restarted without disturbing a run. Pages:
-- **Overview**: latest snapshot, delta since the previous one, the
-  pipeline DAG with per-stage counts (click through to the items), runs
-- **Run**: live per-stage counters, agents and builds in flight, running
-  cost, event stream (Server-Sent Events), pause/resume/cancel
-- **Console**: an agent's transcript as it streams (tool calls, edits,
-  results), and a kill button for a runaway agent
-- **Package**: the rendered investigation report, pipeline dots per arch,
-  `why` per stage with approve/retry buttons, every attempt's artifacts
-  (prompt, transcript, debdiff, build log) and the event timeline
-- **Gates**: every stage waiting for approval, with triage/diagnosis
-  context; **Attention**: errors, needs-human, exhausted loops
-- **Signals**: packages per facts signal with their Debian versions and
-  bugs; signal badges also show (and filter) on Items, Clusters and
-  Package pages
-- **Items**, **Clusters**, **Costs** (by stage/model, run and package),
-  **Snapshots** (new, regressed, gone, state changes between any two)
+A full review of the default selection (universe, about 1000 failing
+builds) costs about $10 in tokens up to diagnose; see
+`docs/OPERATIONS.md` before starting one.
 
-Controls go through the same code as the CLI and are recorded as events.
-The server binds to loopback, answers only to the host names in
-`[web] allowed_hosts` (loopback by default) and only accepts POSTs sent
-by htmx; it has no authentication, so do not expose it. `SECURITY.md`
-has the threat model and how to report a vulnerability.
+## Documentation
 
-`investigation.md` is stitched from per-stage Jinja partials in DAG
-order (`ftbfs/templates/stages/<stage>.md.j2`), with no tokens. A plugin
-stage can ship `plugins/templates/stages/<name>.md.j2` (which also
-overrides a built-in one); a stage without a partial gets a generic
-section. The summary and recommended next action are derived from the
-results.
+| Document | For |
+|---|---|
+| [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | running it: commands, each stage, daily routine, build hosts, costs |
+| [`docs/DESIGN.md`](docs/DESIGN.md) | how it is built and why, with measured results |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | development setup, conventions, adding a stage or a rule |
+| [`SECURITY.md`](SECURITY.md) | threat model, reporting a vulnerability |
+| [`docs/STATUS.md`](docs/STATUS.md) | history, roadmap, open issues |
 
-## Pipeline
-
-`pipeline.toml` is the DAG. Each `[stage.<name>]` block can set:
-- `after`
-- `when`: a restricted expression over upstream results, e.g.
-  `"triage.fixable != 'no' and item.arch == 'amd64'"`
-- `gate = "manual"`
-- `agent = {backend, tier, ...}`
-- `on_fail = {goto, max_loops}`
-- `enabled = false`
-
-A stage re-runs only when its inputs change: its version or options, the
-agent spec, the unit, upstream results, or a retry/loop-back. Everything
-else is cached.
-
-### Adding a stage
-
-Drop a module in `ftbfs/stages/` (or a file in `plugins/`, or register an
-`ftbfs.stages` entry point):
-
-```python
-from ftbfs.core.stage import Kind, Stage, StageResult, Status, register
-
-@register
-class MyReview(Stage):
-    name = "my_review"
-    kind = Kind.AGENT          # deterministic | agent | build | outward
-    version = "1"
-
-    def run(self, ctx, unit_ids):
-        out = []
-        for uid in unit_ids:
-            diff = ctx.upstream(uid, "dev")
-            res = ctx.run_agent(uid, f"Review:\n{diff['debdiff']}",
-                                output_schema=SCHEMA)
-            status = Status.OK if res.data["ok"] else Status.FAIL
-            out.append(StageResult(uid, status, res.data))
-        return out
-```
-
-Then enable it:
-
-```toml
-[stage.my_review]
-after = ["verify"]
-agent = { backend = "opencode", tier = "large" }
-on_fail = { goto = "dev", max_loops = 2 }
-```
-
-`outward` stages (anything that touches Launchpad, Debian or a forge)
-always get a manual gate.
-
-### Agent backends
-
-Stages ask for a tier (`small|medium|large`). `config.toml` maps tiers to
-models per backend (`[backend.<name>.tiers]`). Backends implement
-`ftbfs.agents.base.AgentBackend`.
-
-The `claude` backend runs `claude -p`, isolated from your interactive
-setup: no CLAUDE.md, settings, MCP servers, skills or session files. The
-stage supplies its own system prompt, so a tool-less call costs about 400
-input tokens of overhead instead of about 23k. Output is enforced with
-`--json-schema` and re-validated. Per stage, `agent = {...}` in
-`pipeline.toml` can set:
-- `tier`
-- `effort` (low to max): thinking tokens dominate output cost
-- `max_budget_usd`
-- `timeout`
-- `max_turns` (unset: the backend's own limit)
-
-The `opencode` backend runs `opencode run --format json` with models as
-`provider/model` ids (e.g. `openrouter/anthropic/claude-sonnet-5`).
-`[backend.opencode] api_keys` points each provider at a dedicated key
-file, passed to opencode as a `{file:...}` reference so the key never
-lands in artifacts; a missing file is an error, never a fallback.
-Providers without an entry use opencode's own login. It is isolated the
-same way: a private config home under `state/opencode/`, no
-global or project config, MCP servers, plugins, skills or `~/.claude`
-rules. Each call gets one inline agent whose permissions are an explicit
-allowlist built from the stage's tool policy, and nothing outside the
-working directory is reachable. Differences from `claude`:
-- no structured output: the schema goes in the prompt, and the answer is
-  validated and repaired once with the small tier
-- `effort` maps to the model's `--variant`, which is not calibrated like
-  claude's `--effort` (e.g. Sonnet at `medium` often does not think)
-- `max_budget_usd` is enforced by summing step costs and killing the
-  agent
-- sessions are kept in opencode's own database, titled
-  `ftbfs <unit>/<stage>/attempt-N`
-
-Switch every agent stage with `default_backend = "opencode"` in
-`config.toml`, or one stage with `agent = { backend = "opencode", ... }`.
-The agent spec is part of the cache key, so switching re-runs that stage
-(and whatever depends on its result).
-
-## LLM stages
-
-- `triage` (cluster, small tier, ~12 clusters packed per call): category,
-  summary, obvious, fixable and action. Clusters the facts already decide
-  get no LLM call: blocked dependencies, or every package fixed or newer
-  and building in Debian.
-- `diagnose` (cluster, medium tier, medium effort): root cause, evidence,
-  fix kind and strategy, patch outline, risk. It runs only for
-  patch/investigate-type verdicts.
-
-Prompts live in `prompts/*.md`; editing one re-runs only that stage and
-what follows it. `--sample-clusters N --seed S` selects random whole
-clusters, for trying prompt or model changes cheaply.
-
-## Failure rules
-
-`rules.toml` classifies excerpts into failure classes and clusters with no
-tokens spent. Rules are tried in order. Editing the file re-classifies on
-the next run.
-
-## Debian and upstream facts
-
-The `facts` stage runs once per source package, with no tokens. Sources:
-- Ubuntu and Debian Sources indexes, reproducible-builds testing status:
-  cached once a day in `cache/facts/`
-- one query per batch to the public UDD mirror, for Debian FTBFS bugs
-
-It emits signals that answer "is this known or fixed in Debian?" before
-any LLM runs:
-- `sync-candidate`, `merge-candidate`, `newer-in-experimental`,
-  `not-in-debian`
-- `fixed-in-debian`, `debian-ftbfs-open`, `debian-patch`
-- `ftbfs-in-debian-testing`, `builds-in-debian-testing`
-
-`ftbfs signals --signal fixed-in-debian` lists the packages for a signal, as
-does the **Signals** page of the web UI.
-
-## Development
-
-```sh
-uv run pytest
-uv run ruff check .
-```
-
-`make help` lists shortcuts for the common tasks: `make check` (lint +
-tests), `make serve`, `make run ARGS='--source xfaces'`, etc.
-
-Every source file starts with the copyright and license notice (two
-comment lines, see any `.py` file); `tests/test_license.py` checks it.
+The web UI has no authentication yet: it binds to loopback and answers
+only to the host names in `[web] allowed_hosts`. Do not expose it.
 
 ## License
 
