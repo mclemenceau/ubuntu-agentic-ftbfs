@@ -166,16 +166,22 @@ class DevStage(Stage):
         prev = previous_edits(ctx, uid) if ctx.feedback(uid) else None
         if prev:
             srcpkg.apply_edits(tree, prev)
+        git_state = srcpkg.git_state(tree)
+        links = srcpkg.hide_links(tree)
         res = ctx.run_agent(
             uid, json.dumps(self._context(ctx, uid), indent=1),
             output_schema=SCHEMA, system=prompt.text, cwd=tree,
             tool_policy=ToolPolicy(read=True, edit=True),
             attempt_dir=adir / "agent",
         )
+        srcpkg.restore_links(tree, links)
         if not res.ok or res.data is None:
             return StageResult(uid, Status.ERROR,
                                {"error": res.error or "no result"})
         meta = res.data
+        # The repository is outside the tree, so the agent cannot reach
+        # it through its tools; check anyway before running git.
+        srcpkg.check_git_state(tree, git_state)
         changed = srcpkg.changed_paths(tree)
         if not changed:
             return StageResult(uid, Status.NEEDS_HUMAN, {

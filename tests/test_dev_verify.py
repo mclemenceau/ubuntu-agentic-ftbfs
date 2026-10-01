@@ -5,6 +5,7 @@
 fake agent editing the tree, a fake sbuild failing once then passing."""
 
 import json
+import os
 import shutil
 import stat
 import subprocess
@@ -131,7 +132,7 @@ def agent(req):
 IDENTITY = {"name": "Test Dev", "email": "dev@example.org"}
 
 
-def run(db, item, tmp, identity=IDENTITY):
+def run(db, item, tmp, identity=IDENTITY, responder=agent):
     rep = type("Rep", (Seed,), {"name": "reproduce",
                                 "payload": {"outcome": "reproduced"}})
     exc = type("Exc", (Seed,), {"name": "excerpt", "payload": {
@@ -142,7 +143,7 @@ def run(db, item, tmp, identity=IDENTITY):
                     "agent": {"tier": "medium", "escalate_after_loops": 1}},
             "verify": {"after": ["dev"],
                        "on_fail": {"goto": "dev", "max_loops": 2}}}
-    backend = FakeBackend(responder=agent)
+    backend = FakeBackend(responder=responder)
     pipeline = build({"stage": conf}, registry, "fake")
     paths = Paths(tmp, tmp / "work", tmp / "cache")
     totals = Scheduler(db, pipeline, Units([item], db), {"fake": backend},
@@ -201,9 +202,96 @@ def test_dev_without_identity_fails_before_the_agent(env, monkeypatch):
     assert "[identity]" in latest(db, "dev")[1]["error"]
 
 
+def hostile_git_config(marker: Path) -> str:
+    """A git config that runs a command on the next `git add`."""
+    hook = marker.parent / "hook.sh"
+    hook.write_text(f"#!/bin/sh\ntouch {marker}\n")
+    hook.chmod(0o755)
+    return f"[core]\n\tfsmonitor = {hook}\n\thooksPath = {hook.parent}\n"
+
+
+def test_git_config_written_in_the_tree_runs_nothing(env, monkeypatch):
+    """The tree is the agent's to edit (and comes from an untrusted
+    package): a .git/config in it is just a file."""
+    db, item, tmp = env
+    monkeypatch.setenv("FAIL_TIMES", "0")
+    marker = tmp / "pwned"
+
+    def plant(req):
+        (req.cwd / ".git").mkdir(exist_ok=True)
+        (req.cwd / ".git" / "config").write_text(hostile_git_config(marker))
+        return agent(req)
+
+    totals, _ = run(db, item, tmp, responder=plant)
+    assert totals["dev"] == {"ok": 1}
+    assert not marker.exists()
+    assert ".git/config" not in latest(db, "dev")[1]["files_changed"]
+
+
+def test_dev_refuses_a_repository_changed_by_the_agent(env, monkeypatch):
+    """An agent that reaches the repository next to the tree (a backend
+    without path confinement) gets the unit failed, and git never runs
+    its config."""
+    db, item, tmp = env
+    marker = tmp / "pwned"
+
+    def escape(req):
+        gd = srcpkg.git_dir(req.cwd)
+        with (gd / "config").open("a") as f:
+            f.write(hostile_git_config(marker))
+        return agent(req)
+
+    totals, _ = run(db, item, tmp, responder=escape)
+    assert list(totals["dev"]) == ["error"]
+    assert "changed during the agent run" in latest(db, "dev")[1]["error"]
+    assert not marker.exists()
+
+
 def test_next_ubuntu_version():
     assert srcpkg.next_ubuntu_version("1.0-2") == "1.0-2ubuntu1"
     assert srcpkg.next_ubuntu_version("1.0-2build3") == "1.0-2ubuntu1"
     assert srcpkg.next_ubuntu_version("1.0-2ubuntu4") == "1.0-2ubuntu5"
     assert srcpkg.next_ubuntu_version("20.2.1-0ubuntu3") == \
         "20.2.1-0ubuntu4"
+
+
+def test_links_out_of_the_tree_are_hidden_from_the_agent(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret").write_text("key\n")
+    tree = tmp_path / "tree"
+    (tree / "src").mkdir(parents=True)
+    (tree / "src" / "real.c").write_text("int x;\n")
+    (tree / "src" / "inside.c").symlink_to("real.c")
+    (tree / "config.guess").symlink_to("/usr/share/misc/config.guess")
+    (tree / "src" / "up").symlink_to("../../outside")
+    (tree / "loop").symlink_to("loop")
+    links = srcpkg.hide_links(tree)
+    assert links == {"config.guess": "/usr/share/misc/config.guess",
+                     "src/up": "../../outside", "loop": "loop"}
+    assert (tree / "src" / "inside.c").is_symlink()  # stays
+    assert not (tree / "src" / "up").exists()
+    srcpkg.restore_links(tree, links)
+    assert os.readlink(tree / "src" / "up") == "../../outside"
+    assert os.readlink(tree / "config.guess") == \
+        "/usr/share/misc/config.guess"
+
+    # the agent writes where a link was: refused, nothing written outside
+    links = srcpkg.hide_links(tree)
+    (tree / "src" / "up").mkdir()
+    (tree / "src" / "up" / "secret").write_text("overwritten\n")
+    with pytest.raises(srcpkg.SourceError, match="src/up"):
+        srcpkg.restore_links(tree, links)
+    assert (outside / "secret").read_text() == "key\n"
+
+
+@pytest.mark.parametrize("path", ["debian/changelog", "debian/patches",
+                                  ".pc"])
+def test_packaging_links_out_of_the_tree_are_refused(tmp_path, path):
+    """The steps after the agent (dch, quilt, the patch file) write
+    there: through such a link they would write outside the tree."""
+    tree = tmp_path / "tree"
+    (tree / "debian").mkdir(parents=True)
+    (tree / path).symlink_to(tmp_path)
+    with pytest.raises(srcpkg.SourceError, match="outside the source"):
+        srcpkg.hide_links(tree)
