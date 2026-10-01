@@ -57,22 +57,5 @@ Planned, in rough order. This is the one place that lists them.
 
 ## Open issues
 
-These move to GitHub issues once the repository is published, and this
-section will then link to them.
-
-1. **Agent OS sandbox.** The claude backend's read and edit tools have
-   no path scope, so a prompt-injected dev agent can read any file the
-   user can (`SECURITY.md`, Known limits). bubblewrap works for the
-   claude binary, but the opencode snap refuses to run inside it
-   (snap-confine); a sandbox for opencode needs a non-snap install.
-2. **Ubuntu `Sources` over plain HTTP.** Verify the index against the
-   signed `InRelease` (ubuntu-keyring) before trusting facts.
-3. **SSE streams are unbounded.** Each holds a connection, with no
-   limit: bound them in the app or at a reverse proxy.
-4. **Empty chroot directory after a kill during tarball creation.** A
-   local sbuild killed while creating its chroot tarball leaves an
-   empty `tmp.sbuild.*` directory (its log has no "Unpacking" line
-   yet). Harmless (4 KB); fix only if it shows up.
-5. **No pruning of `cache/` and `work/`.** They grow with every package
-   ever seen; entries for packages gone from the FTBFS list could be
-   removed.
+Known defects and hardening work are tracked as
+[GitHub issues](https://github.com/mclemenceau/ubuntu-agentic-ftbfs/issues).
