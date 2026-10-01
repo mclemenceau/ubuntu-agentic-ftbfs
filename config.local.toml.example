@@ -39,3 +39,9 @@ kind = "lxd"
 remote = "buildhost"  # added with `lxc remote add buildhost <address>`
 slots = 2
 parallel = 4
+
+# The web UI answers only to these host names (config.toml: loopback).
+# It has no authentication yet: anyone who reaches it as one of these
+# can start runs and approve gates.
+# [web]
+# allowed_hosts = ["127.0.0.1", "localhost", "::1", "ftbfs.example.org"]

@@ -47,7 +47,6 @@ from . import queries as q
 HERE = Path(__file__).parent
 TICK_S = 2.0
 MAX_FILE = 20_000_000
-LOOPBACK = {"127.0.0.1", "localhost", "::1", "[::1]", "testserver"}
 
 _md = MarkdownIt("commonmark", {"html": False}).enable("table")
 
@@ -70,8 +69,17 @@ def money(v) -> str:
     return f"${v:.3f}" if v else "-"
 
 
-def create_app(root: Path, loopback_only: bool = True) -> FastAPI:
+def host_name(header: str) -> str:
+    """The name in a Host header, without the port or IPv6 brackets."""
+    header = header.strip().lower()
+    if header.startswith("["):
+        return header[1:].split("]", 1)[0]
+    return header.rsplit(":", 1)[0] if header.count(":") == 1 else header
+
+
+def create_app(root: Path) -> FastAPI:
     core = App(root)
+    allowed = {host_name(h) for h in core.config.allowed_hosts}
     work = core.config.work_dir.resolve()
     readable = [work, core.config.cache_dir.resolve(),
                 core.config.snapshots_dir.resolve()]
@@ -90,10 +98,9 @@ def create_app(root: Path, loopback_only: bool = True) -> FastAPI:
     @web.middleware("http")
     async def guard(request: Request, call_next):
         # Controls are plain POSTs: require the htmx header, which a
-        # cross-site form cannot send, and refuse foreign Host headers
-        # (DNS rebinding) when serving on loopback.
-        host = (request.headers.get("host") or "").rsplit(":", 1)[0]
-        if loopback_only and host not in LOOPBACK:
+        # cross-site form cannot send, and refuse Host headers outside
+        # `[web] allowed_hosts` (DNS rebinding).
+        if host_name(request.headers.get("host") or "") not in allowed:
             return PlainTextResponse("forbidden host", status_code=403)
         if request.method == "POST" and \
                 request.headers.get("hx-request") != "true":

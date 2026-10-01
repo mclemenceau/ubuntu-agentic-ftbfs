@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """config.toml: paths, default filter and profiles, backends,
-concurrency, builders, identity.
+concurrency, builders, identity, web.
 
 `config.toml` holds the project defaults and is tracked. The site's own
 settings (builders, key files, concurrency, changelog identity) go in
@@ -18,6 +18,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .filters import Filter
+
+# Host names the web UI answers to unless `[web] allowed_hosts` says
+# otherwise: loopback only.
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 
 
 @dataclass
@@ -36,6 +40,8 @@ class Config:
     default_backend: str = "claude"
     backends: dict[str, dict] = field(default_factory=dict)
     identity: dict[str, str] = field(default_factory=dict)
+    allowed_hosts: list[str] = field(
+        default_factory=lambda: list(LOOPBACK_HOSTS))
 
     @property
     def db_path(self) -> Path:
@@ -85,6 +91,10 @@ def load_config(root: Path) -> Config:
     filt = dict(raw.get("filter", {}))
     profiles = filt.pop("profiles", {})
     agents = raw.get("agents", {})
+    hosts = raw.get("web", {}).get("allowed_hosts", list(LOOPBACK_HOSTS))
+    if not isinstance(hosts, list) or not all(
+            isinstance(h, str) and h for h in hosts):
+        raise ValueError("[web] allowed_hosts must be a list of host names")
 
     def p(key: str, default: str) -> Path:
         return root / paths.get(key, default)
@@ -104,4 +114,5 @@ def load_config(root: Path) -> Config:
         default_backend=agents.get("default_backend", "claude"),
         backends=raw.get("backend", {}),
         identity=raw.get("identity", {}),
+        allowed_hosts=hosts,
     )

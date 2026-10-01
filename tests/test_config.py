@@ -5,7 +5,9 @@
 
 from pathlib import Path
 
-from ftbfs.config import load_config, merge
+import pytest
+
+from ftbfs.config import LOOPBACK_HOSTS, load_config, merge
 
 ROOT = Path(__file__).parent.parent
 
@@ -65,3 +67,17 @@ def test_example_local_config_loads(tmp_path):
     c = load_config(tmp_path)
     assert set(c.builders) == {"local", "buildhost"}
     assert c.identity["name"] and c.identity["email"]
+
+
+def test_web_allowed_hosts(tmp_path):
+    assert load_config(tmp_path).allowed_hosts == list(LOOPBACK_HOSTS)
+    (tmp_path / "config.toml").write_text(
+        (ROOT / "config.toml").read_text())
+    assert load_config(tmp_path).allowed_hosts == list(LOOPBACK_HOSTS)
+    (tmp_path / "config.local.toml").write_text(
+        '[web]\nallowed_hosts = ["ftbfs.example.org"]\n')
+    assert load_config(tmp_path).allowed_hosts == ["ftbfs.example.org"]
+    (tmp_path / "config.local.toml").write_text(
+        '[web]\nallowed_hosts = "ftbfs.example.org"\n')
+    with pytest.raises(ValueError, match="allowed_hosts"):
+        load_config(tmp_path)

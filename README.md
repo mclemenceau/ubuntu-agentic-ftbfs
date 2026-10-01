@@ -80,8 +80,9 @@ can be restarted without disturbing a run. Pages:
   **Snapshots** (new, regressed, gone, state changes between any two)
 
 Controls go through the same code as the CLI and are recorded as events.
-The server binds to loopback, refuses foreign Host headers and only
-accepts POSTs sent by htmx; it has no authentication, so do not expose it.
+The server binds to loopback, answers only to the host names in
+`[web] allowed_hosts` (loopback by default) and only accepts POSTs sent
+by htmx; it has no authentication, so do not expose it.
 
 `investigation.md` is stitched from per-stage Jinja partials in DAG
 order (`ftbfs/templates/stages/<stage>.md.j2`), with no tokens. A plugin

@@ -62,3 +62,11 @@ large = "opus"
 small = "openrouter/anthropic/claude-haiku-4.5"
 medium = "openrouter/anthropic/claude-sonnet-5"
 large = "openrouter/anthropic/claude-opus-5.5"
+
+# Host names the web UI answers to (the Host header, without the port);
+# any other gets 403, which also stops DNS rebinding. Loopback only by
+# default. To reach the UI from another machine, list the name or
+# address it is reached as in config.local.toml (the list replaces this
+# one) and bind with `ftbfs serve --host`.
+[web]
+allowed_hosts = ["127.0.0.1", "localhost", "::1"]

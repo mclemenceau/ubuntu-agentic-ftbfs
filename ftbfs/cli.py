@@ -226,12 +226,19 @@ def cmd_report(app: App, a) -> None:
 def cmd_serve(app: App, a) -> None:
     import uvicorn
 
+    from .config import LOOPBACK_HOSTS
     from .web.app import create_app
 
-    if a.host not in ("127.0.0.1", "localhost", "::1"):
+    remote = [h for h in app.config.allowed_hosts
+              if h not in LOOPBACK_HOSTS]
+    if a.host not in LOOPBACK_HOSTS and not remote:
+        print(f"warning: serving on {a.host}:{a.port}, but [web]"
+              " allowed_hosts lists only loopback names, so requests"
+              " from other machines get 403", file=sys.stderr)
+    elif remote:
         print("warning: the UI has no authentication; anyone who can"
-              f" reach {a.host}:{a.port} can approve gates",
-              file=sys.stderr)
+              f" reach it as {', '.join(remote)} can start runs, approve"
+              " gates and kill agents", file=sys.stderr)
     uvicorn.run(create_app(app.config.root), host=a.host, port=a.port,
                 log_level="warning")
 

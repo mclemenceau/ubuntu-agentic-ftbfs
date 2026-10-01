@@ -41,6 +41,8 @@ It holds:
 - `[backend.opencode] api_keys`: the key files (see "Dedicated
   OpenRouter key").
 - `[builders.*]`: the build hosts (see "Build hosts").
+- `[web] allowed_hosts`: the host names the web UI answers to
+  (loopback by default; any other Host header gets 403).
 
 ## The pipeline, stage by stage
 
@@ -416,5 +418,6 @@ restarted at any time without disturbing a run.
   which is not set up yet.
 - **Dev per arch:** dev runs once per failing arch, not once per source.
   Approve one arch per package for now.
-- **Local only:** the UI has no authentication and binds to loopback.
-  Do not expose it.
+- **Local only:** the UI has no authentication. It binds to loopback
+  and answers only to the host names in `[web] allowed_hosts`
+  (loopback by default). Do not expose it.

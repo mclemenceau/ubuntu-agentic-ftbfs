@@ -19,11 +19,12 @@ from ftbfs.ingest import parse, read_html
 from ftbfs.inventory import save_snapshot, store
 from ftbfs.web import queries as q
 from ftbfs.web import transcript
-from ftbfs.web.app import create_app
+from ftbfs.web.app import create_app, host_name
 
 ROOT = Path(__file__).parent.parent
 FIXTURE = Path(__file__).parent / "fixtures" / "ftbfs-2026-09-27.html.gz"
 HX = {"HX-Request": "true"}
+BASE = "http://127.0.0.1:8047"
 
 
 def result(app, unit, stage, status, data, utype="item", run_id=None,
@@ -96,7 +97,7 @@ def project(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def client(project):
-    return TestClient(create_app(project["root"]))
+    return TestClient(create_app(project["root"]), base_url=BASE)
 
 
 def test_report_stitches_stage_partials(project):
@@ -227,8 +228,12 @@ def test_next_steps_inbox(client, project):
 def test_guards(client, project):
     assert client.post("/retry", data={"stage": "dev", "unit": "x"}
                        ).status_code == 403  # no HX-Request
-    assert client.get("/", headers={"host": "evil.example"}
-                      ).status_code == 403
+    for host in ("evil.example", "192.0.2.1:8047", "127.0.0.1.evil",
+                 ""):
+        assert client.get("/", headers={"host": host}).status_code == 403
+    for host in ("localhost", "LOCALHOST:8047", "[::1]:8047", "127.0.0.1"):
+        assert client.get("/healthz", headers={"host": host}
+                          ).status_code == 200
     assert client.get("/file?path=/etc/passwd").status_code == 403
     assert client.get("/file?path=work/../config.toml").status_code == 403
     t = quote(str(project["adir"] / "transcript.jsonl"))
@@ -236,6 +241,27 @@ def test_guards(client, project):
     r = client.post("/console/kill", headers=HX,
                     data={"dir": str(project["adir"])})
     assert "not running" in r.text
+
+
+def test_allowed_hosts_from_config(tmp_path):
+    shutil.copy(ROOT / "pipeline.toml", tmp_path)
+    shutil.copy(ROOT / "config.toml", tmp_path)
+    (tmp_path / "config.local.toml").write_text(
+        '[web]\nallowed_hosts = ["ftbfs.example.org", "192.0.2.1"]\n')
+    c = TestClient(create_app(tmp_path), base_url=BASE)
+    assert c.get("/healthz").status_code == 403  # loopback not listed
+    for host in ("ftbfs.example.org", "FTBFS.example.org:443",
+                 "192.0.2.1:8047"):
+        assert c.get("/healthz", headers={"host": host}).status_code == 200
+    assert c.get("/healthz", headers={"host": "example.org"}
+                 ).status_code == 403
+
+
+def test_host_name():
+    assert host_name("127.0.0.1:8047") == "127.0.0.1"
+    assert host_name("[::1]:8047") == host_name("[::1]") == "::1"
+    assert host_name("::1") == "::1"
+    assert host_name("Example.ORG") == "example.org"
 
 
 def test_snapshot_diff_new_gone_regressed(project, tmp_path):
@@ -337,7 +363,8 @@ def test_gone_items_leave_gates_and_inbox(tmp_path, capsys):
     human = nextsteps.build(app, app.config.make_filter())["human"]
     assert {h["unit"] for h in human} == {kept["id"]}
 
-    page = TestClient(create_app(tmp_path)).get("/gates").text
+    page = TestClient(create_app(tmp_path), base_url=BASE).get(
+        "/gates").text
     assert kept["id"] in page and gone["id"] not in page
     assert '<a href="/gates">Gates<span class="count">1</span>' in page
 
