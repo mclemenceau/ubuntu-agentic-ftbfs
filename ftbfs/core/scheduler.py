@@ -67,7 +67,13 @@ class Decision:
 
 
 class Cancelled(Exception):
-    pass
+    """The run was cancelled. `counts` are the results recorded by the
+    stage it stopped in, `totals` those of the whole run so far."""
+
+    def __init__(self, counts: dict[str, int] | None = None):
+        super().__init__()
+        self.counts = counts or {}
+        self.totals: dict[str, dict[str, int]] = {}
 
 
 class Scheduler:
@@ -268,10 +274,13 @@ class Scheduler:
             did_work = False
             for name in names:
                 spec = self.pipeline[name]
-                counts = self._run_stage(spec)
-                for status, n in counts.items():
-                    per = totals.setdefault(name, {})
-                    per[status] = per.get(status, 0) + n
+                try:
+                    counts = self._run_stage(spec)
+                except Cancelled as e:
+                    _add(totals, name, e.counts)
+                    e.totals = totals
+                    raise
+                _add(totals, name, counts)
                 # Pending polls are not progress; looping on them would
                 # just hammer the external service.
                 did_work |= any(k != Status.PENDING for k in counts)
@@ -341,7 +350,7 @@ class Scheduler:
         ctx.event("stage_end", counts=counts,
                   **({"cancelled": True} if cancelled else {}))
         if cancelled:
-            raise Cancelled()
+            raise Cancelled(counts)
         return counts
 
     def _run_batch(self, ctx: Context, batch: list[str],
@@ -474,6 +483,13 @@ def plan_outcome(reason: str) -> str:
                           "no ")) or reason.endswith(" is skip"):
         return "skipped"
     return "blocked"
+
+
+def _add(totals: dict[str, dict[str, int]], stage: str,
+         counts: dict[str, int]) -> None:
+    for status, n in counts.items():
+        per = totals.setdefault(stage, {})
+        per[status] = per.get(status, 0) + n
 
 
 def _non_default(obj) -> dict | None:

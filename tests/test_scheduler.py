@@ -257,9 +257,10 @@ def test_cancel_mid_stage_stops_queued_units(db, units, tmp_path):
     s = Scheduler(db, pipeline, units, {"fake": FakeBackend()},
                   Paths(tmp_path, tmp_path / "work", tmp_path / "cache"),
                   {"deterministic": 1}, run_id=run_id)
-    with pytest.raises(Cancelled):
+    with pytest.raises(Cancelled) as exc:
         s.run()
     assert len(calls("a")) == 1  # the other 4 never start
+    assert exc.value.totals == {"a": {"ok": 1}}  # what did run is counted
     started = db.query("SELECT unit FROM event WHERE type='unit_start'")
     assert len(started) == 1
 

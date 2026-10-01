@@ -232,8 +232,9 @@ class App:
         try:
             totals = self.scheduler(Units(items, self.db), run_id).run(
                 only, until)
-        except Cancelled:
+        except Cancelled as e:
             status = "cancelled"
+            totals = e.totals
         except BaseException as e:
             status = "failed"
             self.db.event("error", run_id=run_id, error=repr(e))
