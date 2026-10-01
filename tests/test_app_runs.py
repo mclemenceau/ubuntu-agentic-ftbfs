@@ -130,3 +130,20 @@ def test_tail_shows_the_last_matching_events(tmp_path, capsys):
     lines = capsys.readouterr().out.splitlines()
     assert len(lines) == 2
     assert "n=3" in lines[0] and "n=4" in lines[1]
+
+
+def test_cli_output_piped_into_head(tmp_path):
+    import sys
+
+    app = App(tmp_path)
+    for i in range(5000):
+        app.db.event("unit_end", unit=f"p/{i}/amd64", stage="excerpt")
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "ftbfs", "--root", str(tmp_path), "tail",
+         "-n", "5000"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc.stdout.readline()
+    proc.stdout.close()  # what `| head -1` does
+    err = proc.stderr.read().decode()
+    proc.wait(timeout=30)
+    assert "Traceback" not in err, err

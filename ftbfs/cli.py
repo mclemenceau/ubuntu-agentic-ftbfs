@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from collections import Counter
@@ -573,4 +574,10 @@ def main(argv: list[str] | None = None) -> None:
 
     a = p.parse_args(argv)
     app = App(Path(a.root).resolve())
-    a.func(app, a)
+    try:
+        a.func(app, a)
+    except BrokenPipeError:
+        # The reader went away (`ftbfs clusters | head`): stop quietly,
+        # with stdout pointed at /dev/null so the exit flush cannot fail.
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        sys.exit(141)  # 128 + SIGPIPE, like other CLIs
