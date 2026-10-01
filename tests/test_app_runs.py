@@ -115,3 +115,18 @@ def test_decided_versions_are_left_out_of_runs(tmp_path, snapshot):
         app.dispose(item["source"], item["version"], "bogus", "test")
     app.dispose(item["source"], item["version"], None, "test")
     assert len(app.workable(flt)) == len(app.select(flt))
+
+
+def test_tail_shows_the_last_matching_events(tmp_path, capsys):
+    from ftbfs.cli import main
+
+    app = App(tmp_path)
+    for i in range(5):
+        app.db.event("unit_end", unit="a/1/amd64", stage="verify", n=i)
+    for _ in range(50):
+        app.db.event("unit_end", unit="b/1/amd64", stage="excerpt")
+    main(["--root", str(tmp_path), "tail", "-n", "2",
+          "--unit", "a/1/amd64", "--stage", "verify"])
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 2
+    assert "n=3" in lines[0] and "n=4" in lines[1]

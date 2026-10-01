@@ -336,8 +336,16 @@ def cmd_tail(app: App, a) -> None:
     if a.stage:
         where.append("stage = ?")
         params.append(a.stage)
-    last = app.db.one("SELECT MAX(id) AS m FROM event")["m"] or 0
-    params[0] = max(0, last - a.n)
+    # Start before the last n events that match, not the last n overall.
+    start = app.db.one(
+        f"SELECT MIN(id) AS m FROM (SELECT id FROM event WHERE"
+        f" {' AND '.join(where)} ORDER BY id DESC LIMIT ?)",
+        [*params, a.n],
+    )["m"]
+    if start is not None:
+        params[0] = start - 1
+    else:
+        params[0] = app.db.one("SELECT MAX(id) AS m FROM event")["m"] or 0
     while True:
         rows = app.db.query(
             f"SELECT * FROM event WHERE {' AND '.join(where)} ORDER BY id",
