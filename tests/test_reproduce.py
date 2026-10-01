@@ -280,3 +280,100 @@ def test_build_killed_when_its_log_stops_growing(tmp_path, monkeypatch,
                     timeout=60, idle_timeout=1)
     assert b.stalled is hang and b.timed_out is hang and b.ok is not hang
     assert b.duration_s < 5  # not the 30 s hang, nor the 60 s timeout
+
+
+# sbuild in unshare mode: the build runs under sbuild-usernsexec, which
+# calls setsid, in a chroot under /var/tmp. CLEANS says whether this
+# sbuild stops the build and removes the chroot on SIGTERM, as the real
+# one does, or ignores it.
+SETSID_SBUILD = """#!/bin/sh
+chroot="$CHROOT_PARENT/tmp.sbuild.AbC123xyZ0"
+mkdir -p "$chroot"
+log=p_1_amd64.build
+echo "I: Unpacking /cache/d-amd64.tar to $chroot..." > "$log"
+setsid sh -c 'trap "" TERM; echo $$ > "$0/child.pid"; exec sleep 300' \
+  "$CHROOT_PARENT" &
+child=$!
+if [ -n "$CLEANS" ]; then
+  trap 'kill -9 $(cat "$CHROOT_PARENT/child.pid"); rm -rf "$chroot";
+        exit 143' TERM
+else
+  trap '' TERM
+fi
+echo "building" >> "$log"
+wait $child
+"""
+
+
+def _alive(pid: int) -> bool:
+    """Still running 5 s on (SIGKILL takes effect asynchronously)."""
+    import time
+
+    for _ in range(50):
+        try:
+            stat_ = Path(f"/proc/{pid}/stat").read_text()
+        except OSError:
+            return False
+        if stat_.rsplit(")", 1)[1].split()[0] == "Z":
+            return False
+        time.sleep(0.1)
+    return True
+
+
+@pytest.mark.skipif(not shutil.which("setsid"), reason="needs setsid")
+@pytest.mark.parametrize("cleans", [True, False])
+def test_stalled_build_leaves_nothing_behind(tmp_path, monkeypatch,
+                                             cleans):
+    """A hung build in a child that left sbuild's session is killed, and
+    the chroot removed: by sbuild on SIGTERM if it can, else by us."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    exe = bindir / "sbuild"
+    exe.write_text(SETSID_SBUILD)
+    exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+    var = tmp_path / "var"
+    var.mkdir()
+    monkeypatch.setenv("PATH", f"{bindir}:{shutil.os.environ['PATH']}")
+    monkeypatch.setenv("CHROOT_PARENT", str(var))
+    monkeypatch.setenv("CLEANS", "1" if cleans else "")
+    monkeypatch.setattr(local, "POLL_S", 0.1)
+    monkeypatch.setattr(local, "GRACE_S", 30 if cleans else 1)
+    b = local.build(tmp_path / "p_1.dsc", "amd64", "d", tmp_path / "b",
+                    timeout=60, idle_timeout=1)
+    assert b.stalled and not b.ok
+    assert b.duration_s < 10  # sbuild's own cleanup, not the 30 s grace
+    child = int((var / "child.pid").read_text())
+    assert not _alive(child)
+    assert not (var / "tmp.sbuild.AbC123xyZ0").exists()
+
+
+def test_remove_chroot_takes_only_sbuild_unpack_line(tmp_path):
+    chroot = tmp_path / "tmp.sbuild.AbC123xyZ0"
+    chroot.mkdir()
+    other = tmp_path / "keep"
+    other.mkdir()
+    log = tmp_path / "p_1_amd64.build"
+    # a package printing a look-alike line later cannot move the target
+    log.write_text(f"I: Unpacking /c/d.tar to {chroot}...\nbuilding\n"
+                   f"I: Unpacking /c/d.tar to {other}...\n")
+    (tmp_path / "p_1_amd64-link.build").symlink_to(log)
+    assert local.remove_chroot(tmp_path) == chroot
+    assert not chroot.exists() and other.exists()
+    assert local.remove_chroot(tmp_path) is None  # gone: nothing to do
+    log.write_text(f"I: Unpacking /c/d.tar to {other}...\n")
+    assert local.remove_chroot(tmp_path) is None  # not a sbuild chroot
+    assert other.exists()
+
+
+def test_descendants_finds_children_outside_the_session():
+    import subprocess
+
+    proc = subprocess.Popen(
+        ["sh", "-c", "setsid sleep 30 & echo $!; wait"],
+        stdout=subprocess.PIPE, text=True, start_new_session=True)
+    try:
+        child = int(proc.stdout.readline())
+        assert child in local.descendants([proc.pid])
+    finally:
+        local.stop(proc, grace=1)
+    assert not _alive(child)
