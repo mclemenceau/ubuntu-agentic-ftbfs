@@ -82,7 +82,8 @@ can be restarted without disturbing a run. Pages:
 Controls go through the same code as the CLI and are recorded as events.
 The server binds to loopback, answers only to the host names in
 `[web] allowed_hosts` (loopback by default) and only accepts POSTs sent
-by htmx; it has no authentication, so do not expose it.
+by htmx; it has no authentication, so do not expose it. `SECURITY.md`
+has the threat model and how to report a vulnerability.
 
 `investigation.md` is stitched from per-stage Jinja partials in DAG
 order (`ftbfs/templates/stages/<stage>.md.j2`), with no tokens. A plugin
