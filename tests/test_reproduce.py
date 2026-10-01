@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """reproduce stage offline: fake sbuild/pull-lp-source executables replay
 a real Launchpad log; a fake PPA drives the async pending lifecycle."""
 

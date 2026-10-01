@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Backend-neutral contract for headless coding agents.
 
 Stages describe *what* they need (tier, tools, output schema); a backend

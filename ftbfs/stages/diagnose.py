@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """diagnose: root cause and fix strategy per cluster (medium tier).
 
 Runs once per cluster that triage considers fixable by a change in

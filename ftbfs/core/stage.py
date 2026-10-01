@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Stage plugin contract and registry.
 
 A stage is a unit of work in the pipeline. It declares what it works on

@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Source package work for the dev agent, done deterministically.
 
 The agent only edits files in an unpacked tree. Everything

@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Turn the qa.ubuntuwire.com/ftbfs HTML page into structured data.
 
 The page has one table per component (h2 sections), then one table per

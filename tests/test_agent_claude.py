@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Claude backend without calling Claude: a fake `claude` executable
 emits stream-json like the real CLI."""
 

@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Debian version comparison (dpkg's algorithm, no python-apt needed)."""
 
 from __future__ import annotations

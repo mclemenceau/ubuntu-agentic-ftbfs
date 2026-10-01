@@ -1,4 +1,6 @@
 ---
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
 version: 2
 ---
 You triage Ubuntu build failures (FTBFS) in the development series.

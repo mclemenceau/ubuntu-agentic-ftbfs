@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """pipeline.toml: the declarative DAG of stages.
 
     [stage.<name>]

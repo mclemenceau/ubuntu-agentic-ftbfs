@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Deterministic backend for tests and dry runs: zero tokens.
 
 Responses come from a responder callable (prompt -> data), or default to

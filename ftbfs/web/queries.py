@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Read models for the web UI. All SQL the pages need lives here."""
 
 from __future__ import annotations

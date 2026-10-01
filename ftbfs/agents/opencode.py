@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """opencode headless backend: `opencode run --format json`.
 
 Models are `provider/model` ids (e.g. openrouter/anthropic/claude-haiku-4.5).

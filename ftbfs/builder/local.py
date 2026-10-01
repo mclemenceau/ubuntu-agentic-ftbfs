@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Local builds with sbuild (unshare mode, the user's sbuild config).
 
 The chroot for `<series>-proposed` is used, matching Launchpad where

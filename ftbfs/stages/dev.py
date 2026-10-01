@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """dev: an agent edits the unpacked source to fix the failure; the
 tooling turns the edits into a DEP-3 patch, changelog entry, new source
 package and debdiff. Human-gated; feedback from `verify` loops back here.

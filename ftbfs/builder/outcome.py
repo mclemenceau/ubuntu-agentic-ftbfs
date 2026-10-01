@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Judge a rebuild against the original Launchpad failure."""
 
 from __future__ import annotations

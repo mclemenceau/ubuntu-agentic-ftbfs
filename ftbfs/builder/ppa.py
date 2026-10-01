@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Launchpad PPA builds for architectures we cannot build locally.
 
 Reproduction copies the exact source from the Ubuntu primary archive into

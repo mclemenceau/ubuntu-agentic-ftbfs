@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """classify: regex rules -> failure class and cluster (0 tokens).
 
 The cluster id is also written onto the item so cluster-level stages

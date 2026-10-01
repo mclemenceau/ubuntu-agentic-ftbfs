@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 from ftbfs.facts.derive import derive, forge
 from ftbfs.facts.sources import iter_deb822, parse_sources, reduce_repro
 

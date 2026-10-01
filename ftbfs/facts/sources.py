@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Bulk data sources for package facts, cached once per UTC day.
 
 - Ubuntu and Debian Sources indexes: newest version, Homepage, Vcs-*

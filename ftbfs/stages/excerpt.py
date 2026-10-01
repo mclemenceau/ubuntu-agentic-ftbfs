@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """excerpt: download the build log, cut the failure excerpt (0 tokens)."""
 
 from __future__ import annotations

@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """dev + verify loop offline: a real tiny 3.0 (quilt) source package, a
 fake agent editing the tree, a fake sbuild failing once then passing."""
 

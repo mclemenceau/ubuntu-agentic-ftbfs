@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """triage: first verdict per failure cluster (small tier, packed).
 
 Clusters whose answer is already known from facts are decided without an

@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """facts: Debian and upstream status per source package (0 tokens).
 
 Answers "is this open in Debian / fixed there / would a sync fix it?"

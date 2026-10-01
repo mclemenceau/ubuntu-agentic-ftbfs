@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Build hosts and their slots.
 
 A builder runs one sbuild per slot. Stages never pick a host: they ask

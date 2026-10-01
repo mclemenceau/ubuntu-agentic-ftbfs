@@ -1,4 +1,6 @@
 ---
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
 version: 1
 ---
 You are an Ubuntu developer fixing a build failure (FTBFS). The current

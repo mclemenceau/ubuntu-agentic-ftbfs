@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """What a stage sees while it runs: units, upstream results, agents, files.
 
 Stages should only touch the outside world through this object so every

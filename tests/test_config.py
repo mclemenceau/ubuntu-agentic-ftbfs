@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """config.toml defaults with the site's config.local.toml merged over."""
 
 from pathlib import Path

@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """verify: build the dev stage's new source package (0 tokens).
 
 ok = builds. fail = still fails; the new excerpt is fed back to `dev`

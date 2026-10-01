@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """SQLite store: the single source of truth shared by runner, CLI and UI.
 
 WAL mode lets the web UI read while a run writes. One connection is shared

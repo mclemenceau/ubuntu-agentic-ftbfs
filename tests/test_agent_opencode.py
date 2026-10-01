@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """opencode backend without calling opencode: a fake `opencode` executable
 emits --format json events like the real CLI (1.18)."""
 

@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """The Next steps inbox: what needs a human now.
 
 Everything here is derived from the pipeline's results plus a dry run

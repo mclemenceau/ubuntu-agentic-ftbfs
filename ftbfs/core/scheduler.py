@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Runs the pipeline DAG over the selected units.
 
 There is no hard-coded state machine. For each stage, in DAG order, a unit

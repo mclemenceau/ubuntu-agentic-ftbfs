@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Common development and operations tasks. Run `make help` for a list.
 
 UV ?= uv

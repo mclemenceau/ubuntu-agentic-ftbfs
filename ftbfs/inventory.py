@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Persist snapshots and keep the item inventory in sync with them.
 
 An item is one failing build: (source, version, arch). Each snapshot is

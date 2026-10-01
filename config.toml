@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # ftbfs review pipeline configuration: project defaults.
 #
 # Site settings (build hosts, key files, concurrency, the changelog

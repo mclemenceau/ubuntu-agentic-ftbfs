@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Build log handling: fetch/cache, sbuild structure, failure excerpt,
 normalized signature.
 

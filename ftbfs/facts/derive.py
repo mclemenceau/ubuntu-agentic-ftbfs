@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Turn raw Ubuntu/Debian data for one source package into facts and
 signals. Pure function: no I/O, easy to test.
 

@@ -1,3 +1,5 @@
+{# Copyright (C) 2026 Matthieu Clemenceau #}
+{#- SPDX-License-Identifier: GPL-3.0-or-later -#}
 {% from "_macros.html" import unit_link %}
 {% set p = e|payload %}
 <tr class="{{ e.type }}"><td class="mono muted">{{ e.ts[11:19] }}</td><td class="mono">{{ e.type }}</td><td>{{ e.stage or '' }}</td><td class="mono">{{ unit_link(e.unit, e.stage) }}</td><td class="mono small">{% for k, v in p.items() if k not in ('data', 'traceback', 'unit', 'units', 'totals') and v is not none %}{{ k }}={{ v|string|truncate(90) }} {% endfor %}{% if e.type == 'agent_call_start' and p.attempt_dir %} <a href="/console?dir={{ p.attempt_dir|urlq }}">console</a>{% endif %}</td></tr>

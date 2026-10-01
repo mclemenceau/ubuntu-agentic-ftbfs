@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Claude Code headless backend: `claude -p`.
 
 Calls are isolated from the user's interactive setup (no CLAUDE.md,

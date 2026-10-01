@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Selection of the items a run works on.
 
 A filter never hides why an item was left out: explain() returns the

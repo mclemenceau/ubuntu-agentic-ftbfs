@@ -231,3 +231,16 @@ uv run ruff check .
 
 `make help` lists shortcuts for the common tasks: `make check` (lint +
 tests), `make serve`, `make run ARGS='--source xfaces'`, etc.
+
+Every source file starts with the copyright and license notice (two
+comment lines, see any `.py` file); `tests/test_license.py` checks it.
+
+## License
+
+Copyright (C) 2026 Matthieu Clemenceau. ftbfs is free software: you can
+redistribute it and/or modify it under the terms of the GNU General
+Public License as published by the Free Software Foundation, either
+version 3 of the License, or (at your option) any later version (see
+`LICENSE`). It comes with no warranty, to the extent permitted by law.
+Third-party components and their licenses are listed in
+`THIRD_PARTY.md`.

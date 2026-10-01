@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """LXD builder offline: a fake `Lxd` maps each container's filesystem
 to a local directory and runs its commands locally, with a fake sbuild
 that writes a timestamped .build log and its symlink like sbuild."""

@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """The web UI: a window onto the pipeline database, plus its controls.
 
 A separate process from the runner; both share SQLite in WAL mode, so

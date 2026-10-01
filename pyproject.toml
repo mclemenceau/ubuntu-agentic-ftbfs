@@ -2,7 +2,23 @@
 name = "ftbfs"
 version = "0.1.0"
 description = "Agentic review pipeline for Ubuntu FTBFS"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Matthieu Clemenceau", email = "matthieu.clemenceau@canonical.com" },
+]
 requires-python = ">=3.12"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Build Tools",
+]
 dependencies = [
     "fastapi>=0.141.1",
     "jinja2>=3.1.6",
@@ -14,6 +30,10 @@ dependencies = [
     "python-multipart>=0.0.32",
     "uvicorn>=0.30",
 ]
+
+[project.urls]
+Homepage = "https://github.com/mclemenceau/ubuntu-agentic-ftbfs"
+Issues = "https://github.com/mclemenceau/ubuntu-agentic-ftbfs/issues"
 
 [project.scripts]
 ftbfs = "ftbfs.cli:main"
@@ -30,7 +50,7 @@ dev = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [tool.ruff]

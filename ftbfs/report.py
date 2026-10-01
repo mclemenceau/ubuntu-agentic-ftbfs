@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """investigation.md: one report per failing source version.
 
 The report is stitched from per-stage Jinja partials in pipeline (DAG)

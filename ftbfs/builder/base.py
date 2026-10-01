@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """What every builder shares: the result of a build, and the error
 that says a builder cannot build right now."""
 

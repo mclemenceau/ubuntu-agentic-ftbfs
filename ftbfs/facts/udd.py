@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Debian bugs related to build failures, from the public UDD mirror.
 
 One query per batch of source packages. FTBFS bugs are recognized by

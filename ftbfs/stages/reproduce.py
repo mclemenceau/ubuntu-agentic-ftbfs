@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """reproduce: rebuild the failing version and compare with Launchpad.
 
 sbuild on our own builders (config.local.toml `[builders.*]`) for

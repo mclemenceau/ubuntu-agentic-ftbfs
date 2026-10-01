@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Versioned, backend-neutral prompt files in prompts/*.md.
 
 Front matter carries a version; the prompt digest joins the stage's cache

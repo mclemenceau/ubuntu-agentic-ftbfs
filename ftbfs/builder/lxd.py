@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Builds in LXD containers, on this machine or on a remote LXD host.
 
 Each slot of an LXD builder is a long-lived worker container,
