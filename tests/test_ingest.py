@@ -87,3 +87,28 @@ def test_missing_legend_row_fails_loudly(page):
     broken = page.replace(b'<td class="FAILEDTOBUILD"', b"<td", 1)
     with pytest.raises(ParseError, match="missing from legend"):
         parse(broken)
+
+
+@pytest.mark.parametrize("old, new, what", [
+    # names and versions become paths and command arguments
+    (b'/+source/ceph">ceph</a>', b'/+source/ceph">../../x</a>',
+     "source name"),
+    (b'>20.2.1-0ubuntu1</a>', b'>$(id)</a>', "version"),
+    (b'>20.2.1-0ubuntu1</a>', b'>../0</a>', "version"),
+    (b'Build status for Ubuntu Stonking', b'Build status for Ubuntu x;id',
+     "series"),
+    # links are fetched (urllib also opens file: URLs) and shown
+    (b'href="https://launchpad.net/ubuntu/+source/ceph/20.2.1-0ubuntu1/'
+     b'+build/33477460/+files/', b'href="file:///etc/passwd?', "log link"),
+    (b'href="https://launchpad.net/ubuntu/+source/ceph/20.2.1-0ubuntu1/'
+     b'+build/33477460"', b'href="javascript:alert(1)//+build/33477460"',
+     "build link"),
+    (b'href="https://tracker.debian.org/', b'href="javascript:x/',
+     "PTS link"),
+])
+def test_tampered_page_is_rejected(page, old, new, what):
+    """The page comes over plain HTTP: a field Launchpad would never
+    produce rejects the whole page."""
+    assert old in page
+    with pytest.raises(ParseError, match=f"bad {what}"):
+        parse(page.replace(old, new, 1))

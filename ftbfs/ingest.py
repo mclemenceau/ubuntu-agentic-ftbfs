@@ -7,6 +7,11 @@ The page has one table per component (h2 sections), then one table per
 packageset and per team (h3 sections) which repeat rows from the component
 tables. We take package data from component tables and only membership from
 the others.
+
+The page comes over plain HTTP (the site has no HTTPS), so it is
+untrusted: names and versions become paths and command arguments, and
+links are fetched and shown. Every such field must have the shape
+Launchpad gives it, or the whole page is rejected.
 """
 
 from __future__ import annotations
@@ -34,6 +39,28 @@ _TIP_RE = re.compile(r"Tip\('(.*?)'\)", re.S)
 _FINISHED_RE = re.compile(r"Build finished on (\S+ \S+) UTC")
 _BUILD_ID_RE = re.compile(r"/\+build/(\d+)")
 _TITLE_RE = re.compile(r"Build status for Ubuntu (\S+) in", re.I)
+
+# Debian policy 5.6.1 and 5.6.12; arch and series as Launchpad names them.
+_SOURCE_RE = re.compile(r"[a-z0-9][a-z0-9+.-]+")
+_VERSION_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+~:-]*")
+_ARCH_RE = re.compile(r"[a-z0-9]+")
+_SERIES_RE = re.compile(r"[a-z]+")
+LAUNCHPAD = "https://launchpad.net/"
+WEB = ("https://", "http://")
+
+
+def _checked(value: str, pattern: re.Pattern, what: str) -> str:
+    if not pattern.fullmatch(value):
+        raise ParseError(f"bad {what} {value[:80]!r}")
+    return value
+
+
+def _link(url: str | None, prefixes: tuple[str, ...] | str,
+          what: str) -> str | None:
+    # Empty links occur (a build without a log) and are kept as they are.
+    if url and not url.startswith(prefixes):
+        raise ParseError(f"bad {what} {url[:80]!r}")
+    return url
 
 
 @dataclass
@@ -137,13 +164,15 @@ def _section_tables(doc, tag: str):
 
 def _arches(table) -> list[str]:
     rows = table.findall("./thead/tr")
-    return [th.text_content().strip() for th in rows[1].findall("th")]
+    return [_checked(th.text_content().strip(), _ARCH_RE, "arch")
+            for th in rows[1].findall("th")]
 
 
 def _parse_version_cell(td) -> tuple[str, str, str | None]:
     text = td.text_content().strip()
     pocket = "proposed" if text.endswith("(Proposed)") else "release"
-    version = text.removesuffix("(Proposed)").strip()
+    version = _checked(text.removesuffix("(Proposed)").strip(),
+                       _VERSION_RE, "version")
     changed_by = _tip(td)
     if changed_by:
         changed_by = changed_by.removeprefix("Changed-By:").strip()
@@ -155,11 +184,12 @@ def _parse_build_cell(td, arch: str) -> Build | None:
     if state not in STATES:
         return None
     links = td.findall(".//a")
-    build_url = links[0].get("href")
+    build_url = _link(links[0].get("href"), LAUNCHPAD, "build link")
     link_arch = links[0].text_content().split()[0]
     if link_arch != arch:
         raise ValueError(f"arch column mismatch: {link_arch} != {arch}")
-    log_url = links[1].get("href") if len(links) > 1 else None
+    log_url = _link(links[1].get("href") if len(links) > 1 else None,
+                    LAUNCHPAD, "log link")
     tip = _tip(td)
     finished = None
     note = tip
@@ -191,7 +221,8 @@ def _parse_component(table, component: str, arches: list[str]):
         if is_pkg_cell:
             if pkg is not None:
                 yield pkg
-            pkg = Package(source=first.text_content().strip(),
+            pkg = Package(source=_checked(first.text_content().strip(),
+                                          _SOURCE_RE, "source name"),
                           component=component)
             tds = tds[1:]
         if pkg is None:
@@ -215,9 +246,9 @@ def _parse_component(table, component: str, arches: list[str]):
             for a in links_td.findall(".//a"):
                 label = a.text_content().strip()
                 if label == "PTS":
-                    pkg.pts = a.get("href")
+                    pkg.pts = _link(a.get("href"), WEB, "PTS link")
                 elif label == "BTS":
-                    pkg.bts = a.get("href")
+                    pkg.bts = _link(a.get("href"), WEB, "BTS link")
     if pkg is not None:
         yield pkg
 
@@ -236,7 +267,8 @@ def parse(data: bytes, fetched_at: str | None = None,
     doc = html.fromstring(data)
     title = doc.findtext(".//title") or ""
     m = _TITLE_RE.search(title)
-    series = m.group(1).lower() if m else "unknown"
+    series = _checked(m.group(1).lower(), _SERIES_RE, "series") \
+        if m else "unknown"
 
     packages: dict[str, Package] = {}
     arches: list[str] = []
