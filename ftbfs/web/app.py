@@ -47,6 +47,17 @@ from . import queries as q
 HERE = Path(__file__).parent
 TICK_S = 2.0
 MAX_FILE = 20_000_000
+# Pages show LLM output, build logs and package metadata: no script
+# but our own, nothing loaded from elsewhere, no framing. Styles may be
+# inline (style attributes, and htmx adds its indicator style).
+HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; style-src 'self' 'unsafe-inline';"
+        " img-src 'self' data:; frame-ancestors 'none'; base-uri 'none';"
+        " form-action 'self'"),
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "same-origin",
+}
 
 _md = MarkdownIt("commonmark", {"html": False}).enable("table")
 
@@ -106,7 +117,9 @@ def create_app(root: Path) -> FastAPI:
                 request.headers.get("hx-request") != "true":
             return PlainTextResponse("POST needs HX-Request",
                                      status_code=403)
-        return await call_next(request)
+        response = await call_next(request)
+        response.headers.update(HEADERS)
+        return response
 
     def page(request: Request, name: str, **ctx) -> HTMLResponse:
         return tpl.TemplateResponse(request, name, {
@@ -632,10 +645,13 @@ def create_app(root: Path) -> FastAPI:
             return PlainTextResponse(listing)
         if p.stat().st_size > MAX_FILE * (4 if p.suffix == ".gz" else 1):
             raise HTTPException(413, "file too large to show")
-        if p.suffix == ".gz":
-            data = gzip.decompress(p.read_bytes())[:MAX_FILE]
-        else:
-            data = p.read_bytes()[:MAX_FILE]
+        # Read at most MAX_FILE bytes, also when decompressing: a small
+        # .gz can expand to gigabytes.
+        try:
+            with (gzip.open(p) if p.suffix == ".gz" else p.open("rb")) as f:
+                data = f.read(MAX_FILE)
+        except (OSError, EOFError) as e:
+            raise HTTPException(422, f"cannot read: {e}") from None
         media = ("application/json" if p.suffix == ".json" else
                  "text/plain; charset=utf-8")
         return Response(data, media_type=media)

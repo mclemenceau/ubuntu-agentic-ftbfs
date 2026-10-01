@@ -243,6 +243,32 @@ def test_guards(client, project):
     assert "not running" in r.text
 
 
+def test_file_stays_inside_and_bounded(client, project, monkeypatch):
+    import gzip as gz
+
+    from ftbfs.web import app as web_app
+
+    work = project["app"].config.work_dir
+    # a package tree can carry a symlink out of work/
+    (work / "escape").symlink_to("/etc/passwd")
+    assert client.get("/file?path=work/escape").status_code == 403
+    # a small .gz that expands far beyond the cap is read only that far
+    (work / "bomb.txt.gz").write_bytes(gz.compress(b"\0" * 10_000_000))
+    monkeypatch.setattr(web_app, "MAX_FILE", 5000)  # > the .gz / 4
+    r = client.get("/file?path=work/bomb.txt.gz")
+    assert r.status_code == 200 and len(r.content) == 5000
+    (work / "bad.gz").write_bytes(b"not gzip")
+    assert client.get("/file?path=work/bad.gz").status_code == 422
+
+
+def test_security_headers(client):
+    h = client.get("/").headers
+    assert "script-src" not in h["content-security-policy"]  # 'self'
+    assert "default-src 'self'" in h["content-security-policy"]
+    assert "frame-ancestors 'none'" in h["content-security-policy"]
+    assert h["x-content-type-options"] == "nosniff"
+
+
 def test_allowed_hosts_from_config(tmp_path):
     shutil.copy(ROOT / "pipeline.toml", tmp_path)
     shutil.copy(ROOT / "config.toml", tmp_path)
