@@ -23,6 +23,25 @@ ingest -> run -> review (gates, attention) -> approve/retry -> run -> ...
 - Nothing outward-facing happens automatically. Uploads, syncs and bug
   reports stay with you.
 
+## Site configuration
+
+`config.toml` holds the project defaults. This machine's own settings go
+in `config.local.toml` (git-ignored), merged over it: tables merge key
+by key, other values replace. Start from the example:
+
+```sh
+cp config.local.toml.example config.local.toml
+```
+
+It holds:
+- `[identity]`: name and email for the changelog entries and patches
+  the dev stage writes. Without it, dev uses `git config user.name` and
+  `user.email`, and errors if neither is set.
+- `[concurrency]`: how many units of each kind run at once here.
+- `[backend.opencode] api_keys`: the key files (see "Dedicated
+  OpenRouter key").
+- `[builders.*]`: the build hosts (see "Build hosts").
+
 ## The pipeline, stage by stage
 
 ```
@@ -256,7 +275,7 @@ both sets of verdicts can be compared there.
 
 The opencode backend reads its OpenRouter key from
 `~/.config/ftbfs/openrouter.key` (`[backend.opencode] api_keys` in
-`config.toml`), not from your interactive opencode login:
+`config.local.toml`), not from your interactive opencode login:
 
 1. Create a key at <https://openrouter.ai/settings/keys> with a credit
    limit: the limit is the hard cap on a runaway run, and the key's
@@ -331,22 +350,23 @@ file" instead of using another key.
 ### Build hosts
 
 Reproduce and verify run sbuild (unshare mode, `<series>-proposed`) on
-the builders in `config.toml`. Without a `[builders.*]` table, builds
-use your own sbuild on this machine, `[concurrency] build` at a time.
+the builders in `config.local.toml`. Without a `[builders.*]` table,
+builds use your own sbuild on this machine, `[concurrency] build` at a
+time.
 
 With LXD, each host is one table, and each slot is a worker container
 on it:
 
 ```toml
-[builders.laptop]
+[builders.local]
 kind = "lxd"
 remote = "local"      # an `lxc remote` name; local = this machine
 slots = 2
 parallel = 6          # DEB_BUILD_OPTIONS parallel per build
 
-[builders.marsangle]
+[builders.buildhost]
 kind = "lxd"
-remote = "marsangle"
+remote = "buildhost"
 slots = 2
 parallel = 4
 ```

@@ -1,4 +1,9 @@
-# ftbfs review pipeline configuration
+# ftbfs review pipeline configuration: project defaults.
+#
+# Site settings (build hosts, key files, concurrency, the changelog
+# identity) go in config.local.toml, which is git-ignored and merged
+# over this file: tables merge key by key, other values replace. Start
+# from config.local.toml.example.
 
 source_url = "http://qa.ubuntuwire.com/ftbfs/"
 
@@ -30,29 +35,14 @@ components = []
 states = []
 skip_lp_bug = false
 
-# Max concurrent units per stage kind (laptop defaults). Builds are
-# bounded by the builders' slots below; `build` only applies when no
-# builder is configured (plain local sbuild).
+# Max concurrent units per stage kind. Builds are bounded by the
+# builders' slots (config.local.toml, `[builders.*]`); `build` only
+# applies when no builder is configured (plain local sbuild).
 [concurrency]
 deterministic = 8
 agent = 4
-build = 4
+build = 2
 outward = 1
-
-# Build hosts (docs/OPERATIONS.md, "Build hosts"). Each slot is an LXD
-# worker container built from the `ftbfs builders image` image; parallel
-# is DEB_BUILD_OPTIONS parallel per build, so slots x parallel ~ cores.
-[builders.laptop]
-kind = "lxd"
-remote = "local"
-slots = 4
-parallel = 6
-
-[builders.marsangle]
-kind = "lxd"
-remote = "marsangle"
-slots = 2
-parallel = 4
 
 [agents]
 default_backend = "opencode"
@@ -64,12 +54,7 @@ medium = "sonnet"
 large = "opus"
 
 # opencode: provider/model ids. Pinned versions keep runs reproducible.
-# api_keys: a dedicated key file per provider (mode 600, one line), so
-# pipeline spend is separate from interactive use. A missing file is an
-# error; providers not listed use opencode's own `opencode auth` login.
-[backend.opencode]
-api_keys = { openrouter = "~/.config/ftbfs/openrouter.key" }
-
+# The key files (`api_keys`) are a site setting: config.local.toml.
 [backend.opencode.tiers]
 small = "openrouter/anthropic/claude-haiku-4.5"
 medium = "openrouter/anthropic/claude-sonnet-5"

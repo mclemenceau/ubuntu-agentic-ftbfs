@@ -1,5 +1,12 @@
 """config.toml: paths, default filter and profiles, backends,
-concurrency, builders."""
+concurrency, builders, identity.
+
+`config.toml` holds the project defaults and is tracked. The site's own
+settings (builders, key files, concurrency, changelog identity) go in
+the git-ignored `config.local.toml` next to it, merged over the
+defaults: tables merge key by key, anything else (scalars, lists) is
+replaced.
+"""
 
 from __future__ import annotations
 
@@ -25,6 +32,7 @@ class Config:
     builders: dict[str, dict] = field(default_factory=dict)
     default_backend: str = "claude"
     backends: dict[str, dict] = field(default_factory=dict)
+    identity: dict[str, str] = field(default_factory=dict)
 
     @property
     def db_path(self) -> Path:
@@ -49,9 +57,27 @@ class Config:
         return Filter.from_dict(base)
 
 
+LOCAL = "config.local.toml"
+
+
+def merge(base: dict, over: dict) -> dict:
+    """`over` merged into a copy of `base`: tables merge recursively,
+    other values replace."""
+    out = dict(base)
+    for key, value in over.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def _read(path: Path) -> dict:
+    return tomllib.loads(path.read_text()) if path.exists() else {}
+
+
 def load_config(root: Path) -> Config:
-    path = root / "config.toml"
-    raw = tomllib.loads(path.read_text()) if path.exists() else {}
+    raw = merge(_read(root / "config.toml"), _read(root / LOCAL))
     paths = raw.get("paths", {})
     filt = dict(raw.get("filter", {}))
     profiles = filt.pop("profiles", {})
@@ -74,4 +100,5 @@ def load_config(root: Path) -> Config:
         builders=raw.get("builders", {}),
         default_backend=agents.get("default_backend", "claude"),
         backends=raw.get("backend", {}),
+        identity=raw.get("identity", {}),
     )

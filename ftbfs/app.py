@@ -111,7 +111,7 @@ class App:
     def _lxd_builders_or_fail(self) -> list:
         lxds = self.lxd_builders()
         if not lxds:
-            raise ValueError("no LXD builders in config.toml")
+            raise ValueError("no LXD builders in config.local.toml")
         return lxds
 
     # -- ingest -----------------------------------------------------------
@@ -180,6 +180,7 @@ class App:
             Paths(self.config.root, self.config.work_dir,
                   self.config.cache_dir),
             self.config.concurrency, run_id, self.builders,
+            self.config.identity,
         )
 
     def reap_stale_runs(self) -> list[int]:

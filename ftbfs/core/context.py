@@ -124,9 +124,12 @@ class Context:
                  units: Units, backends: dict[str, AgentBackend],
                  paths: Paths, attempts: dict[str, int],
                  unit_types: dict[str, UnitType],
-                 builders: BuilderPool | None = None):
+                 builders: BuilderPool | None = None,
+                 identity: dict[str, str] | None = None):
         self.db = db
         self.builders = builders
+        # `[identity]` of the config: who signs changelogs and patches.
+        self.identity = identity or {}
         self.unit_types = unit_types
         self.run_id = run_id
         self.spec = spec

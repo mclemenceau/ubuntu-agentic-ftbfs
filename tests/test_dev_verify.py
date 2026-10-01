@@ -125,7 +125,10 @@ def agent(req):
             "notes": ""}
 
 
-def run(db, item, tmp):
+IDENTITY = {"name": "Test Dev", "email": "dev@example.org"}
+
+
+def run(db, item, tmp, identity=IDENTITY):
     rep = type("Rep", (Seed,), {"name": "reproduce",
                                 "payload": {"outcome": "reproduced"}})
     exc = type("Exc", (Seed,), {"name": "excerpt", "payload": {
@@ -133,7 +136,6 @@ def run(db, item, tmp):
     registry = {**discover(), "reproduce": rep, "excerpt": exc}
     conf = {"excerpt": {}, "reproduce": {"after": ["excerpt"]},
             "dev": {"after": ["reproduce"], "gate": "manual",
-                    "name": "Test Dev", "email": "dev@example.org",
                     "agent": {"tier": "medium", "escalate_after_loops": 1}},
             "verify": {"after": ["dev"],
                        "on_fail": {"goto": "dev", "max_loops": 2}}}
@@ -141,7 +143,7 @@ def run(db, item, tmp):
     pipeline = build({"stage": conf}, registry, "fake")
     paths = Paths(tmp, tmp / "work", tmp / "cache")
     totals = Scheduler(db, pipeline, Units([item], db), {"fake": backend},
-                       paths).run()
+                       paths, identity=identity).run()
     return totals, backend
 
 
@@ -183,6 +185,17 @@ def test_loop_gives_up_after_max_loops(env, monkeypatch):
     totals, _ = run(db, item, tmp)
     assert totals["dev"] == {"ok": 3} and totals["verify"] == {"fail": 3}
     assert db.one("SELECT 1 FROM event WHERE type='loop_exhausted'")
+
+
+def test_dev_without_identity_fails_before_the_agent(env, monkeypatch):
+    db, item, tmp = env
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", "/dev/null")
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp.parent))
+    totals, backend = run(db, item, tmp, identity={})
+    assert list(totals["dev"]) == ["error"]
+    assert backend.calls == []
+    assert "[identity]" in latest(db, "dev")[1]["error"]
 
 
 def test_next_ubuntu_version():

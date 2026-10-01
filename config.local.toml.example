@@ -1,0 +1,38 @@
+# Site settings, merged over config.toml. Copy to config.local.toml
+# (git-ignored) and adapt. Tables merge key by key with config.toml;
+# other values (strings, numbers, lists) replace its.
+
+# Who signs the changelog entries and patches the dev stage writes.
+# Without it, dev falls back to `git config user.name/user.email`, and
+# errors when neither is set.
+[identity]
+name = "Your Name"
+email = "you@example.org"
+
+# How many units of each kind run at once on this machine.
+[concurrency]
+build = 4
+
+# The opencode backend's API key, one file per provider (mode 600, one
+# line), so pipeline spend is separate from interactive use. A missing
+# file is an error; providers not listed use opencode's own
+# `opencode auth` login.
+[backend.opencode]
+api_keys = { openrouter = "~/.config/ftbfs/openrouter.key" }
+
+# Build hosts (docs/OPERATIONS.md, "Build hosts"). Without any, builds
+# use plain sbuild on this machine, `[concurrency] build` at a time.
+# Each slot is an LXD worker container built from the
+# `ftbfs builders image` image; parallel is DEB_BUILD_OPTIONS parallel
+# per build, so slots x parallel ~ cores.
+[builders.local]
+kind = "lxd"
+remote = "local"      # an `lxc remote` name; local = this machine
+slots = 4
+parallel = 6
+
+[builders.buildhost]
+kind = "lxd"
+remote = "buildhost"  # added with `lxc remote add buildhost <address>`
+slots = 2
+parallel = 4

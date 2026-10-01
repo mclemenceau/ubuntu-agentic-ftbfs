@@ -38,17 +38,15 @@ SCHEMA = {
 }
 
 
-def _identity(ctx) -> tuple[str, str]:
-    name = ctx.options.get("name")
-    email = ctx.options.get("email")
-    if name and email:
-        return name, email
-
+def identity(ctx) -> tuple[str, str]:
+    """Name and email for the changelog and the patch header: the
+    config's `[identity]`, else `git config` user.name/user.email."""
     def git(key):
         return subprocess.run(["git", "config", key], cwd=ctx.paths.root,
                               capture_output=True, text=True).stdout.strip()
 
-    return name or git("user.name"), email or git("user.email")
+    return (ctx.identity.get("name") or git("user.name"),
+            ctx.identity.get("email") or git("user.email"))
 
 
 def _read(path, limit: int) -> str | None:
@@ -149,6 +147,11 @@ class DevStage(Stage):
         return pack
 
     def _one(self, ctx, uid: str) -> StageResult:
+        name, email = identity(ctx)
+        if not (name and email):
+            return StageResult(uid, Status.ERROR, {
+                "error": "no changelog identity: set name and email under"
+                         " [identity] in config.local.toml"})
         item = ctx.item(uid)
         prompt = load(ctx.paths.root, "dev")
         adir = ctx.attempt_dir(uid)
@@ -176,7 +179,6 @@ class DevStage(Stage):
                 **meta, "reason": "agent made no changes"})
         edits = adir / EDITS
         edits.write_text(srcpkg.edits(tree))
-        name, email = _identity(ctx)
         patch = srcpkg.record_upstream_changes(tree, srcpkg.PatchMeta(
             name=meta["patch_name"],
             description=meta["patch_description"],

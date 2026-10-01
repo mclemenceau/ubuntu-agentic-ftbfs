@@ -8,6 +8,7 @@ where judgement is needed, on small precomputed inputs.
 
 ```sh
 uv sync
+cp config.local.toml.example config.local.toml   # then edit it
 uv run ftbfs ingest                  # fetch + parse + diff the page
 uv run ftbfs list --by arch          # what the default filter selects
 uv run ftbfs run                     # run the pipeline on the selection
@@ -17,6 +18,10 @@ uv run ftbfs verdicts                # triage + diagnosis per cluster
 uv run ftbfs status                  # runs, per-stage counts, gates, cost
 uv run ftbfs builders                # build hosts, image, workers
 ```
+
+`config.toml` holds the project defaults; `config.local.toml`
+(git-ignored) holds this machine's settings and is merged over it (see
+`docs/OPERATIONS.md`, "Site configuration").
 
 The selection defaults come from `config.toml` (`[filter]`). The CLI flags
 override them: `--component`, `--state F`, `--arch`, `--pocket`,

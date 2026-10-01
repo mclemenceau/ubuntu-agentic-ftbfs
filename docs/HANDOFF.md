@@ -1,7 +1,6 @@
 # ftbfs pipeline: status and handoff
 
-Last updated: 2026-09-29. Read this, then `README.md`, then the approved
-plan (`~/.claude/plans/so-i-would-like-twinkling-metcalfe.md`).
+Last updated: 2026-09-29. Read this, then `README.md`.
 
 ## Goal
 
@@ -40,13 +39,15 @@ an investigation report, shown on a dashboard.
     (private config home in `state/opencode/`, inline agent with an
     allowlist of permissions, nothing outside cwd). Tiers point at the
     same Claude models through OpenRouter, billed to a dedicated key
-    (`~/.config/ftbfs/openrouter.key`, `api_keys` in config.toml).
+    (`~/.config/ftbfs/openrouter.key`, `api_keys` in
+    config.local.toml).
   - `fake`: for tests.
 - **Builders** (`ftbfs/builder/pool.py`, `lxd.py`): reproduce and
   verify ask `ctx.build()` for a slot; the build goes to the builder
-  with the most free slots for the arch. `config.toml` `[builders.*]`:
-  - `lxd`: one worker container per slot on an LXD remote (`local`
-    and `marsangle` now), all from one image (`ftbfs builders image`:
+  with the most free slots for the arch. `[builders.*]` in
+  config.local.toml:
+  - `lxd`: one worker container per slot on an LXD remote (this
+    machine and a second host now), all from one image (`ftbfs builders image`:
     sbuild, mmdebstrap, the `<series>-proposed` chroot tarball,
     sbuild's AppArmor profile in complain mode, which nested unshare
     needs). Recreated on a new image; force-restarted on first use per
@@ -294,12 +295,11 @@ Verified debdiffs:
 `work/{hexcurse,freehsm-c,libshairport}/*/amd64/dev/attempt-1/fix.debdiff`
 and `work/xfaces/3.3-30.3/amd64/dev/attempt-4/fix.debdiff` (see issue 1).
 
-## Conventions and preferences (from the user)
+## Conventions
 
 - No em dashes. Stay within 80 columns where possible. Lint and tests
   must be clean, and pre-existing failures get fixed too.
 - Quality and simplicity over dev cost. Start with the direct path.
-- Never push. Commit only when asked. No co-author trailer.
-- Explain the tradeoffs and ask before large subagent swarms.
+- No co-author trailers in commits.
 - Anything outward-facing (Launchpad, Debian, forges) stays behind a
   manual gate; nothing is filed automatically.

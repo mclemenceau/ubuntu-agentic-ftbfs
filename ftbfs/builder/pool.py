@@ -10,11 +10,11 @@ unreachable, no image, ...) is taken out for DOWN_S and the build goes
 to another one. Only when every builder for the arch is down does the
 build fail.
 
-config.toml declares builders under `[builders.<name>]`, with
-`kind = "local"` (sbuild on this machine) or `kind = "lxd"` (worker
-containers on an LXD remote, see lxd.py). Without any,
-the pool is one local builder with `[concurrency] build` slots, which
-is how builds ran before there were several hosts.
+The site config (config.local.toml) declares builders under
+`[builders.<name>]`, with `kind = "local"` (sbuild on this machine) or
+`kind = "lxd"` (worker containers on an LXD remote, see lxd.py).
+Without any, the pool is one local builder with `[concurrency] build`
+slots, which is how builds ran before there were several hosts.
 """
 
 from __future__ import annotations
@@ -126,7 +126,7 @@ class BuilderPool:
 
 def make_pool(raw: dict[str, dict], default_slots: int,
               state_dir: Path | None = None) -> BuilderPool:
-    """The pool from config.toml's `[builders.*]` tables. LXD workers
+    """The pool from the config's `[builders.*]` tables. LXD workers
     are locked under state_dir/builders."""
     if not raw:
         return BuilderPool([LocalBuilder("local", default_slots)])

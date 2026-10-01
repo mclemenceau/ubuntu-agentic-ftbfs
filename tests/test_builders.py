@@ -106,20 +106,20 @@ def test_make_pool_default_is_one_local_builder():
 
 
 def test_make_pool_from_config():
-    p = make_pool({"laptop": {"slots": 3, "parallel": 6},
+    p = make_pool({"local": {"slots": 3, "parallel": 6},
                    "other": {"slots": 2, "arches": ["amd64", "i386"]}}, 4)
     assert p.slots == 5
-    laptop, other = p.builders
-    assert laptop.parallel == 6 and other.parallel is None
+    local, other = p.builders
+    assert local.parallel == 6 and other.parallel is None
     assert other.arches == ("amd64", "i386")
 
 
 def test_make_pool_lxd():
-    p = make_pool({"mars": {"kind": "lxd", "remote": "marsangle",
+    p = make_pool({"host": {"kind": "lxd", "remote": "buildhost",
                             "slots": 2, "image": "other"}}, 4)
     (b,) = p.builders
     assert (b.remote, b.image, b.workers) == (
-        "marsangle", "other", ["ftbfs-mars-1", "ftbfs-mars-2"])
+        "buildhost", "other", ["ftbfs-host-1", "ftbfs-host-2"])
 
 
 @pytest.mark.parametrize("conf, error", [

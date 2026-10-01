@@ -72,9 +72,11 @@ class Scheduler:
                  backends: dict[str, AgentBackend], paths: Paths,
                  concurrency: dict[str, int] | None = None,
                  run_id: int | None = None,
-                 builders: BuilderPool | None = None):
+                 builders: BuilderPool | None = None,
+                 identity: dict[str, str] | None = None):
         self.db = db
         self.pipeline = pipeline
+        self.identity = identity or {}
         self.units = units
         self.backends = backends
         self.paths = paths
@@ -207,7 +209,7 @@ class Scheduler:
                        paths=self.paths, attempts=attempts,
                        unit_types={s.name: s.stage.unit
                                    for s in self.pipeline},
-                       builders=self.builders)
+                       builders=self.builders, identity=self.identity)
 
     def explain(self, uid_for: dict[str, str]) -> list[tuple[str, str]]:
         """Decision per stage for one item (and its package/cluster)."""

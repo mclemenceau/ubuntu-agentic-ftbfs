@@ -1,6 +1,6 @@
 """reproduce: rebuild the failing version and compare with Launchpad.
 
-sbuild on our own builders (config.toml `[builders.*]`) for
+sbuild on our own builders (config.local.toml `[builders.*]`) for
 `local_arches` (default amd64) that a builder supports; other arches go
 to a PPA (option `ppa = "owner/name"`) when configured. PPA builds are
 asynchronous: the stage returns `pending` and is polled on later runs.
