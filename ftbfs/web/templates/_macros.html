@@ -28,6 +28,7 @@
 <a class="badge sig" href="/signals?signal={{ name|urlq }}" title="{{ signal_help.get(name, '') }}">{{ name }}{% if n %} &times;{{ n }}{% endif %}</a>
 {%- endmacro %}
 
+{# Needs the caller's context (`import ... with context`) for `user`. #}
 {% macro dispose(source, version, choices) -%}
-<span class="actions">{% for st in choices %}<button class="{{ 'approve' if st in ('accepted', 'uploaded') else 'reject' if st == 'rejected' else '' }}" title="{{ dispositions[st] }}" hx-post="/dispose" hx-vals='{{ {"source": source, "version": version, "status": st}|tojson }}' hx-target="closest span">{{ {"accepted": "accept", "uploaded": "mark uploaded", "rejected": "won't fix", "handled": "handled elsewhere"}[st] }}</button>{% endfor %}</span>
+{% if user.can('reviewer') %}<span class="actions">{% for st in choices %}<button class="{{ 'approve' if st in ('accepted', 'uploaded') else 'reject' if st == 'rejected' else '' }}" title="{{ dispositions[st] }}" hx-post="/dispose" hx-vals='{{ {"source": source, "version": version, "status": st}|tojson }}' hx-target="closest span">{{ {"accepted": "accept", "uploaded": "mark uploaded", "rejected": "won't fix", "handled": "handled elsewhere"}[st] }}</button>{% endfor %}</span>{% endif %}
 {%- endmacro %}

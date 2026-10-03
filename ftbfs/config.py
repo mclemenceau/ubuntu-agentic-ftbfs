@@ -42,6 +42,7 @@ class Config:
     identity: dict[str, str] = field(default_factory=dict)
     allowed_hosts: list[str] = field(
         default_factory=lambda: list(LOOPBACK_HOSTS))
+    web: dict = field(default_factory=dict)  # [web], read by ftbfs.web
 
     @property
     def db_path(self) -> Path:
@@ -91,7 +92,8 @@ def load_config(root: Path) -> Config:
     filt = dict(raw.get("filter", {}))
     profiles = filt.pop("profiles", {})
     agents = raw.get("agents", {})
-    hosts = raw.get("web", {}).get("allowed_hosts", list(LOOPBACK_HOSTS))
+    web = raw.get("web", {})
+    hosts = web.get("allowed_hosts", list(LOOPBACK_HOSTS))
     if not isinstance(hosts, list) or not all(
             isinstance(h, str) and h for h in hosts):
         raise ValueError("[web] allowed_hosts must be a list of host names")
@@ -115,4 +117,5 @@ def load_config(root: Path) -> Config:
         backends=raw.get("backend", {}),
         identity=raw.get("identity", {}),
         allowed_hosts=hosts,
+        web=web,
     )

@@ -31,6 +31,13 @@ header .brand { font-weight: 700; color: var(--accent); }
 header nav { display: flex; gap: 14px; flex-wrap: wrap; }
 header nav a { color: var(--fg); }
 header nav a.live { color: var(--ok); font-weight: 600; }
+header .account { margin-left: auto; display: flex; gap: 10px;
+  align-items: center; color: var(--muted); }
+button.link { background: none; border: none; padding: 0;
+  color: var(--pending); font: inherit; cursor: pointer; }
+button.link:hover { text-decoration: underline; }
+footer { padding: 12px 20px; border-top: 1px solid var(--line);
+  color: var(--muted); font-size: 12px; text-align: center; }
 .count { background: var(--gate); color: #fff; border-radius: 9px;
   padding: 0 6px; font-size: 11px; margin-left: 3px; }
 .count.bad { background: var(--fail); }

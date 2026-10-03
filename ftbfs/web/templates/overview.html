@@ -25,11 +25,11 @@
     <div class="small"><a href="/snapshots">{{ diff.regressed|length }} regressed, {{ diff.fixed_sources|length }} packages fixed, {{ diff.changed|length }} changed state</a></div>
     {% else %}<div class="muted">needs two snapshots</div>{% endif %}
   </div>
-  <div class="card">
+  {% if user.costs %}<div class="card">
     <div class="muted">LLM cost recorded</div>
     <div class="big">{{ cost|money }}</div>
     <div class="small"><a href="/costs">ledger</a></div>
-  </div>
+  </div>{% endif %}
 </div>
 
 <h2>Pipeline</h2>

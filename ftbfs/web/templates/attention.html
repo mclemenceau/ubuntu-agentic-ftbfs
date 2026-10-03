@@ -12,7 +12,7 @@
 {% for r in a.problems %}
 {% set d = r.data|fromjson %}
 <tr><td>{{ r.stage }}</td><td class="mono">{{ unit_link(r.unit_id, r.stage) }}</td><td>{{ status(r.status) }}</td><td class="small">{{ (d.error or d.reason or '')|string|truncate(200) }}</td><td class="mono small">{{ r.ts }}</td>
-<td><span><button hx-post="/retry" hx-vals='{{ {"stage": r.stage, "unit": r.unit_id}|tojson }}' hx-target="closest span">retry</button></span></td></tr>
+<td>{% if user.can('reviewer') %}<span><button hx-post="/retry" hx-vals='{{ {"stage": r.stage, "unit": r.unit_id}|tojson }}' hx-target="closest span">retry</button></span>{% endif %}</td></tr>
 {% else %}<tr><td colspan="6" class="muted">none</td></tr>
 {% endfor %}
 </table>

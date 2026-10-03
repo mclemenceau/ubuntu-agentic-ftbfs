@@ -4,10 +4,10 @@
 <div class="actions">
   {{ status(s.run.status) }}
   {% if s.run.control %}<span class="badge gate">{{ s.run.control }} requested</span>{% endif %}
-  <span>cost so far <b>{{ s.cost|money }}</b></span>
+  {% if user.costs %}<span>cost so far <b>{{ s.cost|money }}</b></span>{% endif %}
   {% if s.gates %}<a class="gate" href="/gates">{{ s.gates }} waiting at gates</a>{% endif %}
   {% if s.pending_polls %}<span class="pending">{{ s.pending_polls }} external builds pending</span>{% endif %}
-  {% if s.run.status == 'running' %}
+  {% if s.run.status == 'running' and user.can('operator') %}
     {% for action in ('pause', 'resume', 'cancel') %}
     <button class="{{ 'danger' if action == 'cancel' else '' }}" hx-post="/runs/{{ s.run.id }}/control" hx-vals='{{ {"action": action}|tojson }}' hx-target="#panel">{{ action }}</button>
     {% endfor %}

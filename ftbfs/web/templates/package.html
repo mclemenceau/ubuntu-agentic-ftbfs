@@ -1,7 +1,7 @@
 {# Copyright (C) 2026 Matthieu Clemenceau #}
 {#- SPDX-License-Identifier: GPL-3.0-or-later -#}
 {% extends "base.html" %}
-{% from "_macros.html" import status, dot, file_link, unit_link, signal, dispose %}
+{% from "_macros.html" import status, dot, file_link, unit_link, signal, dispose with context %}
 {% block title %}{{ inv.source }} {{ inv.version }}{% endblock %}
 {% block main %}
 <h1>{{ inv.source }} <span class="muted">{{ inv.version }}</span></h1>
@@ -13,7 +13,7 @@
 </div>
 <div class="disposition small"><b>Your decision:</b>
   <span>{% if disposition %}<span class="badge ok">{{ disposition.status }}</span> <span class="muted">{{ dispositions[disposition.status] }}, {{ disposition.ts }}</span>
-  <button hx-post="/dispose" hx-vals='{{ {"source": inv.source, "version": inv.version, "status": ""}|tojson }}' hx-target="closest span">clear</button>
+  {% if user.can('reviewer') %}<button hx-post="/dispose" hx-vals='{{ {"source": inv.source, "version": inv.version, "status": ""}|tojson }}' hx-target="closest span">clear</button>{% endif %}
   {% else %}<span class="muted">none yet</span>{% endif %}</span>
   {{ dispose(inv.source, inv.version, dispositions.keys()) }}
 </div>
@@ -41,9 +41,9 @@
   <tr><td>{{ stage }}</td><td>{{ reason }}</td><td>
     {% if reason == 'waiting for manual approval' %}
     {% set uid = iid if unit_types[stage] == 'item' else (inv.source if unit_types[stage] == 'package' else none) %}
-    {% if uid %}<span><button class="approve" hx-post="/gates/decide" hx-vals='{{ {"stage": stage, "unit": uid, "decision": "approved"}|tojson }}' hx-target="closest span">approve</button>
+    {% if uid and user.can('reviewer') %}<span><button class="approve" hx-post="/gates/decide" hx-vals='{{ {"stage": stage, "unit": uid, "decision": "approved"}|tojson }}' hx-target="closest span">approve</button>
     <button class="reject" hx-post="/gates/decide" hx-vals='{{ {"stage": stage, "unit": uid, "decision": "rejected"}|tojson }}' hx-target="closest span">reject</button></span>{% endif %}
-    {% elif unit_types[stage] == 'item' and (reason.startswith('cached') or reason.startswith('gave up')) %}
+    {% elif unit_types[stage] == 'item' and (reason.startswith('cached') or reason.startswith('gave up')) and user.can('reviewer') %}
     <span><button hx-post="/retry" hx-vals='{{ {"stage": stage, "unit": iid}|tojson }}' hx-target="closest span">retry</button></span>
     {% endif %}
   </td></tr>
@@ -55,10 +55,10 @@
 
   <h2>Attempts and artifacts</h2>
   {% for a in attempts %}
-  <details><summary>{{ a.arch }} &middot; {{ a.stage }} &middot; {{ a.name }}{% if a.usage %} <span class="muted small">{{ a.usage.model }} {{ a.usage.cost|money }}{% if a.usage.error %} <span class="error">{{ a.usage.error|truncate(60) }}</span>{% endif %}</span>{% endif %}</summary>
+  <details><summary>{{ a.arch }} &middot; {{ a.stage }} &middot; {{ a.name }}{% if a.usage %} <span class="muted small">{{ a.usage.model }}{% if user.costs %} {{ a.usage.cost|money }}{% endif %}{% if a.usage.error %} <span class="error">{{ a.usage.error|truncate(60) }}</span>{% endif %}</span>{% endif %}</summary>
   <div class="small">
     {% if a.agent_dir %}<a href="/console?dir={{ a.agent_dir|string|urlq }}"><b>console</b></a> &middot; {% endif %}
-    {% for f in a.files %}{{ file_link(f, f.name) }}{% if not loop.last %} &middot; {% endif %}{% endfor %}
+    {% for f in a.files if user.costs or f.name not in cost_files %}{{ file_link(f, f.name) }}{% if not loop.last %} &middot; {% endif %}{% endfor %}
   </div>
   </details>
   {% else %}<p class="muted small">no attempts on disk</p>

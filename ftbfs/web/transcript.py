@@ -88,7 +88,7 @@ def _opencode(e: dict, state: dict) -> list[Entry] | None:
                       f"tools: {tools}")]
     if kind == "ftbfs_end":
         bits = [f"{e.get('steps', '?')} steps"]
-        if e.get("cost") is not None:
+        if e.get("cost") is not None and state.get("costs", True):
             bits.append(f"${e['cost']:.4f}")
         if e.get("duration_s"):
             bits.append(f"{e['duration_s']:.0f} s")
@@ -167,7 +167,7 @@ def parse_line(line: str, state: dict) -> list[Entry]:
     if kind == "result":
         cost = e.get("total_cost_usd")
         bits = [f"{e.get('num_turns', '?')} turns"]
-        if cost is not None:
+        if cost is not None and state.get("costs", True):
             bits.append(f"${cost:.4f}")
         if e.get("duration_ms"):
             bits.append(f"{e['duration_ms'] / 1000:.0f} s")
@@ -177,14 +177,31 @@ def parse_line(line: str, state: dict) -> list[Entry]:
                                          if err else ""), error=err)]
     if kind in ("rate_limit_event", "stream_event", "system"):
         return []  # bookkeeping (token estimates, limits), not activity
+    if not state.get("costs", True):
+        line = json.dumps(_no_costs(e))
     return [Entry("raw", kind or "event", _clip(line, 800))]
 
 
-def read(path: Path, offset: int = 0,
-         state: dict | None = None) -> tuple[list[Entry], int]:
+_COST_KEYS = {"cost", "total_cost_usd", "usage", "tokens"}
+
+
+def _no_costs(value):
+    """`value` without cost and token fields, at any depth."""
+    if isinstance(value, dict):
+        return {k: _no_costs(v) for k, v in value.items()
+                if k not in _COST_KEYS}
+    if isinstance(value, list):
+        return [_no_costs(v) for v in value]
+    return value
+
+
+def read(path: Path, offset: int = 0, state: dict | None = None,
+         costs: bool = True) -> tuple[list[Entry], int]:
     """Entries from byte `offset` on; returns the new offset. Only whole
-    lines are consumed, so a line being written is picked up next time."""
+    lines are consumed, so a line being written is picked up next time.
+    Without `costs`, the session totals leave out what it cost."""
     state = state if state is not None else {}
+    state["costs"] = costs
     entries: list[Entry] = []
     try:
         with path.open("rb") as f:

@@ -19,10 +19,10 @@
     {% if g.reproduce %}<div><b>reproduce</b> {{ g.reproduce.outcome or g.reproduce.error }}</div>{% endif %}
   </td>
   <td class="mono small">{{ g.ts }}</td>
-  <td><span class="actions">
+  <td>{% if user.can('reviewer') %}<span class="actions">
     <button class="approve" hx-post="/gates/decide" hx-vals='{{ {"stage": stage, "unit": g.unit_id, "decision": "approved"}|tojson }}' hx-target="closest span">approve</button>
     <button class="reject" hx-post="/gates/decide" hx-vals='{{ {"stage": stage, "unit": g.unit_id, "decision": "rejected"}|tojson }}' hx-target="closest span">reject</button>
-  </span></td>
+  </span>{% endif %}</td>
 </tr>
 {% endfor %}
 </table>

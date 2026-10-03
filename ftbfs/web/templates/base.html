@@ -23,12 +23,19 @@
     <a href="/items">Items</a>
     <a href="/clusters">Clusters</a>
     <a href="/signals">Signals</a>
-    <a href="/costs">Costs</a>
+    {% if user.costs %}<a href="/costs">Costs</a>{% endif %}
     <a href="/snapshots">Snapshots</a>
   </nav>
+  {% if auth %}<span class="account">
+    {% if user.name %}<span title="your role">{{ user.name }} &middot; {{ user.role }}</span>
+    <button class="link" hx-post="/logout">log out</button>
+    {% else %}{% set here = request.url.path ~ ('?' ~ request.url.query if request.url.query else '') %}
+    <a rel="nofollow" href="/login?next={{ here|urlq }}">log in with Launchpad</a>{% endif %}
+  </span>{% endif %}
 </header>
 <main>
 {% block main %}{% endblock %}
 </main>
+{% if source_url %}<footer>ftbfs is free software under the GPL, version 3 or later: <a href="{{ source_url }}">source</a></footer>{% endif %}
 </body>
 </html>

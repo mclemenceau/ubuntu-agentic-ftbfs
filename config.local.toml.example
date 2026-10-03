@@ -40,8 +40,27 @@ remote = "buildhost"  # added with `lxc remote add buildhost <address>`
 slots = 2
 parallel = 4
 
-# The web UI answers only to these host names (config.toml: loopback).
-# It has no authentication yet: anyone who reaches it as one of these
-# can start runs and approve gates.
+# The web UI beyond this machine (docs/OPERATIONS.md, "Web access").
+# Anyone can read it, except costs; people log in with Launchpad to act.
+# Without [web.auth], it serves loopback only and needs no login.
 # [web]
 # allowed_hosts = ["127.0.0.1", "localhost", "::1", "ftbfs.example.org"]
+# public_url = "https://ftbfs.example.org"  # where Launchpad sends back
+# # Signs the session cookies (mode 600, 32 random bytes or more):
+# #   install -m 600 /dev/null ~/.config/ftbfs/session.key
+# #   head -c 32 /dev/urandom | base64 > ~/.config/ftbfs/session.key
+# session_secret_file = "~/.config/ftbfs/session.key"
+# session_days = 30
+#
+# [web.auth]
+# provider = "launchpad"
+# consumer_key = "ftbfs"   # the application name Launchpad shows
+#
+# # Launchpad people or teams (public membership, read at login). Each
+# # role can do what the ones before it can: viewer sees costs; reviewer
+# # decides gates, dispositions and retries; operator starts, pauses and
+# # cancels runs and kills agents.
+# [web.roles]
+# viewer = ["~ubuntu-dev"]
+# reviewer = ["~some-team", "someone"]
+# operator = ["you"]

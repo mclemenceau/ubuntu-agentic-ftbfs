@@ -65,8 +65,14 @@ large = "openrouter/anthropic/claude-opus-5.5"
 
 # Host names the web UI answers to (the Host header, without the port);
 # any other gets 403, which also stops DNS rebinding. Loopback only by
-# default. To reach the UI from another machine, list the name or
-# address it is reached as in config.local.toml (the list replaces this
-# one) and bind with `ftbfs serve --host`.
+# default. Without a login (`[web.auth]`, see config.local.toml.example)
+# the UI refuses any other name and any bind beyond loopback: whoever
+# reaches it can do anything. With one, list the public name in
+# config.local.toml (the list replaces this one).
 [web]
 allowed_hosts = ["127.0.0.1", "localhost", "::1"]
+# USD of LLM cost that runs started from the web UI may record per UTC
+# day; past it, the UI starts no more runs (the CLI still can).
+daily_cost_cap = 10.0
+# Live streams (events, agent consoles) open at once, over all viewers.
+max_streams = 64

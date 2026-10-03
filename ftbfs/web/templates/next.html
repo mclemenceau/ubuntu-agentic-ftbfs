@@ -1,7 +1,7 @@
 {# Copyright (C) 2026 Matthieu Clemenceau #}
 {#- SPDX-License-Identifier: GPL-3.0-or-later -#}
 {% extends "base.html" %}
-{% from "_macros.html" import unit_link, file_link, dispose, signal %}
+{% from "_macros.html" import unit_link, file_link, dispose, signal with context %}
 {% block title %}Next steps{% endblock %}
 {% block main %}
 {% set n_approve = n.approvals|sum(attribute='total') %}
@@ -63,7 +63,7 @@
 <tr>
   <td>{{ h.stage }}</td><td class="mono">{{ unit_link(h.unit, h.stage) }}</td>
   <td class="small">{{ h.why }}</td>
-  <td><span class="actions"><span><button hx-post="/retry" hx-vals='{{ {"stage": h.retry, "unit": h.unit}|tojson }}' hx-target="closest span">retry {{ h.retry }}</button></span>
+  <td><span class="actions">{% if user.can('reviewer') %}<span><button hx-post="/retry" hx-vals='{{ {"stage": h.retry, "unit": h.unit}|tojson }}' hx-target="closest span">retry {{ h.retry }}</button></span>{% endif %}
   {% if p|length == 3 %}{{ dispose(p[0], p[1], ['rejected']) }}{% endif %}</span></td>
 </tr>
 {% endfor %}
@@ -89,12 +89,12 @@
   <td class="num">{{ b.units|length }}</td>
   <td class="small"><details><summary>{% for u in b.units[:6] %}{{ u.item.source if u.item else u.id }}{% if not loop.last %}, {% endif %}{% endfor %}{% if b.units|length > 6 %} and {{ b.units|length - 6 }} more{% endif %}</summary>
     <table class="small">{% for u in b.units %}<tr><td class="mono">{{ unit_link(u.id, a.stage) }}</td><td>{{ (u.diagnose.fix_strategy or u.triage.summary or '')|truncate(160) }}</td>
-    <td><span><button class="approve" hx-post="/gates/decide" hx-vals='{{ {"stage": a.stage, "unit": u.id, "decision": "approved"}|tojson }}' hx-target="closest span">approve</button></span></td></tr>{% endfor %}</table>
+    <td>{% if user.can('reviewer') %}<span><button class="approve" hx-post="/gates/decide" hx-vals='{{ {"stage": a.stage, "unit": u.id, "decision": "approved"}|tojson }}' hx-target="closest span">approve</button></span>{% endif %}</td></tr>{% endfor %}</table>
   </details></td>
-  <td><span class="actions">{% set ids = b.units|map(attribute='id')|list %}
+  <td>{% if user.can('reviewer') %}<span class="actions">{% set ids = b.units|map(attribute='id')|list %}
     <button class="approve" hx-post="/gates/bulk" hx-vals='{{ {"stage": a.stage, "units": ids|tojson, "decision": "approved"}|tojson }}' hx-target="closest span">approve {{ ids|length }}</button>
     <button class="reject" hx-post="/gates/bulk" hx-vals='{{ {"stage": a.stage, "units": ids|tojson, "decision": "rejected"}|tojson }}' hx-target="closest span">reject</button>
-  </span></td>
+  </span>{% endif %}</td>
 </tr>
 {% endfor %}
 </table>

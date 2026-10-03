@@ -256,14 +256,34 @@ class App:
         sched = self.scheduler(Units(self.workable(flt), self.db))
         return sched.plan(sched.stage_names(until=until))
 
+    def web_spend_today(self) -> float:
+        """LLM cost recorded since 00:00 UTC by runs started from the
+        web UI (trigger `web` or `web:<login>`)."""
+        today = datetime.now(UTC).strftime("%Y-%m-%dT00:00:00+00:00")
+        return self.db.one(
+            "SELECT COALESCE(SUM(r.cost), 0) AS c FROM stage_result r"
+            " JOIN run ON run.id = r.run_id WHERE r.ts >= ? AND"
+            " (run.trigger = 'web' OR run.trigger LIKE 'web:%')",
+            (today,))["c"]
+
     def start_run(self, until: str | None = None, ingest: bool = False,
-                  by: str = "web", wait_s: float = 10.0) -> int:
+                  by: str = "web", wait_s: float = 10.0,
+                  daily_cap: float | None = None) -> int:
         """Start `ftbfs run` on the configured selection as a detached
         process, so it outlives the caller (e.g. a UI restart). Returns
-        its run id once the run is recorded."""
+        its run id once the run is recorded. With `daily_cap`, refuses
+        once web-started runs have spent that much today; a run started
+        under the cap is not stopped when it crosses it."""
         self.reap_stale_runs()
         if self.db.one("SELECT 1 FROM run WHERE status='running'"):
             raise ValueError("a run is already in progress")
+        if daily_cap is not None:
+            spent = self.web_spend_today()
+            if spent >= daily_cap:
+                raise ValueError(
+                    f"daily cap reached: runs started from the web spent"
+                    f" ${spent:.2f} today (UTC), cap ${daily_cap:.2f};"
+                    " start one from the CLI or wait for tomorrow")
         if until is not None and until not in self.pipeline.specs:
             raise ValueError(f"stage {until!r} is not in the pipeline")
         args = [sys.executable, "-m", "ftbfs", "--root",

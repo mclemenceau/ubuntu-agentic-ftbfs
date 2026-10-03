@@ -187,17 +187,21 @@ class Reporter:
         inv.next_actions = recommend(inv)
         return inv
 
-    def render(self, inv: Investigation) -> str:
+    def render(self, inv: Investigation, costs: bool = True) -> str:
+        """The report; without `costs`, the LLM cost line is left out
+        (the public web UI)."""
         for section in inv.sections:
             try:
                 tpl = self.env.get_template(f"stages/{section.stage}.md.j2")
             except TemplateNotFound:
                 tpl = self.env.get_template("stages/_default.md.j2")
             section.body = tpl.render(inv=inv, s=section).strip()
-        return self.env.get_template("investigation.md.j2").render(inv=inv)
+        return self.env.get_template("investigation.md.j2").render(
+            inv=inv, costs=costs)
 
-    def report(self, source: str, version: str) -> str:
-        return self.render(self.gather(source, version))
+    def report(self, source: str, version: str,
+               costs: bool = True) -> str:
+        return self.render(self.gather(source, version), costs)
 
     def write(self, work_dir: Path, source: str, version: str) -> Path:
         path = work_dir / source / version / "investigation.md"

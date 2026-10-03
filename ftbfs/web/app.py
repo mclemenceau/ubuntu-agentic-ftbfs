@@ -9,7 +9,10 @@ rendered (Jinja); htmx does the forms and partial refreshes, and
 Server-Sent Events push new events and agent transcripts live.
 
 Every control (gate decision, retry, pause, kill) goes through the same
-App methods as the CLI and is recorded as an event.
+App methods as the CLI and is recorded as an event, with the login of
+who did it. Reading is public, except costs; controls need a role
+(`auth.Role`), checked by the `require` dependency each POST route
+declares.
 """
 
 from __future__ import annotations
@@ -19,10 +22,12 @@ import gzip
 import json
 from collections import defaultdict
 from html import escape
+from importlib import metadata
 from pathlib import Path
-from urllib.parse import quote
+from typing import Annotated
+from urllib.parse import quote, urlsplit
 
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import (
     HTMLResponse,
     PlainTextResponse,
@@ -43,10 +48,26 @@ from ..facts.derive import SIGNALS
 from ..report import Result, Section
 from . import nextsteps, transcript
 from . import queries as q
+from .auth import (
+    ANONYMOUS,
+    LOCAL,
+    OAUTH_COOKIE,
+    OAUTH_TTL_S,
+    SESSION_COOKIE,
+    AuthSettings,
+    Launchpad,
+    LoginError,
+    Role,
+    Signer,
+    User,
+    check_serving,
+)
 
 HERE = Path(__file__).parent
 TICK_S = 2.0
 MAX_FILE = 20_000_000
+# Files under work/ that record what agents cost: viewers and up only.
+COST_FILES = {"usage.json", "transcript.jsonl", "investigation.md"}
 # Pages show LLM output, build logs and package metadata: no script
 # but our own, nothing loaded from elsewhere, no framing. Styles may be
 # inline (style attributes, and htmx adds its indicator style).
@@ -88,8 +109,58 @@ def host_name(header: str) -> str:
     return header.rsplit(":", 1)[0] if header.count(":") == 1 else header
 
 
-def create_app(root: Path) -> FastAPI:
+def source_url() -> str | None:
+    """The project's home page, for the footer link to the source."""
+    try:
+        urls = metadata.metadata("ftbfs").get_all("Project-URL") or []
+    except metadata.PackageNotFoundError:
+        return None
+    return next((u.split(",", 1)[1].strip() for u in urls
+                 if u.lower().startswith("homepage,")), None)
+
+
+def require(role: Role):
+    """Dependency: the request's user, who must have `role`. Every POST
+    route declares one (tests/test_auth.py walks the routes)."""
+    def dependency(request: Request) -> User:
+        user: User = request.state.user
+        if not user.can(role):
+            raise HTTPException(403 if user.name else 401,
+                                f"needs the {role} role")
+        return user
+
+    dependency.role = role
+    return dependency
+
+
+# The user of a request, who must have this role.
+Anyone = Annotated[User, Depends(require(Role.ANONYMOUS))]
+Reviewer = Annotated[User, Depends(require(Role.REVIEWER))]
+Operator = Annotated[User, Depends(require(Role.OPERATOR))]
+
+
+def local_path(path: str) -> str:
+    """`path` if it is a path on this site, else /: no open redirect."""
+    if path.startswith("/") and not path.startswith("//") \
+            and "\\" not in path:
+        return path
+    return "/"
+
+
+def create_app(root: Path, launchpad: Launchpad | None = None) -> FastAPI:
     core = App(root)
+    check_serving(core.config)
+    auth = AuthSettings.from_config(core.config)
+    signer = Signer(auth.secret) if auth else None
+    if auth and launchpad is None:
+        launchpad = Launchpad(auth.consumer_key)
+    web_cfg = core.config.web
+    daily_cap = web_cfg.get("daily_cost_cap")
+    if daily_cap is not None and (isinstance(daily_cap, bool) or
+                                  not isinstance(daily_cap, int | float)):
+        raise ValueError("[web] daily_cost_cap must be a number (USD)")
+    max_streams = int(web_cfg.get("max_streams", 64))
+    streams = {"open": 0}
     allowed = {host_name(h) for h in core.config.allowed_hosts}
     work = core.config.work_dir.resolve()
     readable = [work, core.config.cache_dir.resolve(),
@@ -97,7 +168,9 @@ def create_app(root: Path) -> FastAPI:
     web = FastAPI(title="ftbfs", docs_url=None, redoc_url=None)
     web.mount("/static", StaticFiles(directory=HERE / "static"),
               name="static")
-    tpl = Jinja2Templates(directory=HERE / "templates")
+    tpl = Jinja2Templates(
+        directory=HERE / "templates",
+        context_processors=[lambda r: {"user": r.state.user}])
     tpl.env.filters.update(markdown=markdown, ago=ago, money=money,
                            urlq=lambda s: quote(str(s), safe=""),
                            payload=q.payload, fromjson=json.loads)
@@ -105,18 +178,38 @@ def create_app(root: Path) -> FastAPI:
         s.name: str(s.stage.unit) for s in core.pipeline}
     tpl.env.globals["signal_help"] = SIGNALS
     tpl.env.globals["dispositions"] = DISPOSITIONS
+    tpl.env.globals["auth"] = auth is not None
+    tpl.env.globals["cost_files"] = COST_FILES
+    tpl.env.globals["source_url"] = source_url()
+
+    def current_user(request: Request) -> User:
+        if auth is None:
+            return LOCAL
+        s = signer.loads("session", request.cookies.get(SESSION_COOKIE))
+        if not s:
+            return ANONYMOUS
+        # The role comes from the config the server runs with, not from
+        # the cookie; the teams are those seen at login.
+        return User(s["name"], auth.role_of(s["name"], set(s["teams"])))
 
     @web.middleware("http")
     async def guard(request: Request, call_next):
-        # Controls are plain POSTs: require the htmx header, which a
-        # cross-site form cannot send, and refuse Host headers outside
-        # `[web] allowed_hosts` (DNS rebinding).
-        if host_name(request.headers.get("host") or "") not in allowed:
+        # Refuse Host headers outside `[web] allowed_hosts` (DNS
+        # rebinding). Controls are POSTs from htmx: require its header,
+        # which a cross-site form cannot send, and an Origin naming this
+        # very host, so no other site can make a browser post here.
+        host = request.headers.get("host") or ""
+        if host_name(host) not in allowed:
             return PlainTextResponse("forbidden host", status_code=403)
-        if request.method == "POST" and \
-                request.headers.get("hx-request") != "true":
-            return PlainTextResponse("POST needs HX-Request",
-                                     status_code=403)
+        if request.method == "POST":
+            if request.headers.get("hx-request") != "true":
+                return PlainTextResponse("POST needs HX-Request",
+                                         status_code=403)
+            origin = request.headers.get("origin") or ""
+            if urlsplit(origin).netloc.lower() != host.lower():
+                return PlainTextResponse("POST from another origin",
+                                         status_code=403)
+        request.state.user = current_user(request)
         response = await call_next(request)
         response.headers.update(HEADERS)
         return response
@@ -162,18 +255,21 @@ def create_app(root: Path) -> FastAPI:
                                    " status='running' LIMIT 1")})
 
     @web.post("/runs/start", response_class=HTMLResponse)
-    def run_start(until: str = Form(""), ingest: bool = Form(False)):
+    def run_start(user: Operator, until: str = Form(""),
+                  ingest: bool = Form(False)):
         try:
-            run_id = core.start_run(until or None, ingest, "web")
+            run_id = core.start_run(until or None, ingest, user.by,
+                                    daily_cap=daily_cap)
         except (ValueError, RuntimeError) as e:
             return HTMLResponse(f"<span class=warn>{escape(str(e))}</span>")
         return HTMLResponse("", headers={"HX-Redirect": f"/runs/{run_id}"})
 
     @web.post("/dispose", response_class=HTMLResponse)
-    def dispose(source: str = Form(...), version: str = Form(...),
-                status: str = Form(""), note: str = Form("")):
+    def dispose(user: Reviewer, source: str = Form(...),
+                version: str = Form(...), status: str = Form(""),
+                note: str = Form("")):
         try:
-            core.dispose(source, version, status or None, "web",
+            core.dispose(source, version, status or None, user.by,
                          note or None)
         except ValueError as e:
             raise HTTPException(400, str(e)) from None
@@ -240,10 +336,10 @@ def create_app(root: Path) -> FastAPI:
             "slots": core.builders.slots})
 
     @web.post("/runs/{run_id}/control", response_class=HTMLResponse)
-    def run_control(request: Request, run_id: int,
+    def run_control(user: Operator, request: Request, run_id: int,
                     action: str = Form(...)):
         try:
-            core.control(action, "web", run_id)
+            core.control(action, user.by, run_id)
         except (LookupError, ValueError) as e:
             raise HTTPException(400, str(e)) from None
         return run_panel(request, run_id)
@@ -254,6 +350,25 @@ def create_app(root: Path) -> FastAPI:
         head = f"id: {eid}\n" if eid is not None else ""
         data = "\n".join(f"data: {line}" for line in html.splitlines())
         return f"{head}event: {event}\n{data or 'data: '}\n\n"
+
+    def _bounded(gen):
+        """At most `[web] max_streams` streams open at once: each holds
+        a connection and polls the database. Over the limit, the stream
+        ends at once and asks the browser to retry in a minute. Counted
+        inside the generator, so a stream never started is not."""
+        async def stream():
+            if streams["open"] >= max_streams:
+                yield "retry: 60000\n\n"
+                return
+            streams["open"] += 1
+            try:
+                async for chunk in gen:
+                    yield chunk
+            finally:
+                streams["open"] -= 1
+
+        return StreamingResponse(stream(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache"})
 
     def _last_id(request: Request, after: int | None) -> int:
         header = request.headers.get("last-event-id")
@@ -270,6 +385,7 @@ def create_app(root: Path) -> FastAPI:
                          after: int | None = None):
         last = _last_id(request, after)
         row_tpl = tpl.env.get_template("_event_row.html")
+        user = request.state.user
 
         async def stream():
             nonlocal last
@@ -277,12 +393,12 @@ def create_app(root: Path) -> FastAPI:
                 for e in q.events(core.db, after=last, run_id=run,
                                   unit=unit, stage=stage):
                     last = e["id"]
-                    yield _sse("ev", row_tpl.render(e=e), e["id"])
+                    yield _sse("ev", row_tpl.render(e=e, user=user),
+                               e["id"])
                 yield _sse("tick", "")
                 await asyncio.sleep(TICK_S)
 
-        return StreamingResponse(stream(), media_type="text/event-stream",
-                                 headers={"Cache-Control": "no-cache"})
+        return _bounded(stream())
 
     def _attempt_dir(path: str) -> Path:
         p = readable_path(path)
@@ -293,7 +409,8 @@ def create_app(root: Path) -> FastAPI:
     @web.get("/console", response_class=HTMLResponse)
     def console(request: Request, dir: str):
         adir = _attempt_dir(dir)
-        entries, _ = transcript.read(adir / "transcript.jsonl")
+        entries, _ = transcript.read(adir / "transcript.jsonl",
+                                     costs=request.state.user.costs)
         return page(request, "console.html", dir=adir,
                     rel=adir.relative_to(work),
                     alive=running_pid(adir) is not None,
@@ -307,37 +424,39 @@ def create_app(root: Path) -> FastAPI:
         path = adir / "transcript.jsonl"
         entry_tpl = tpl.env.get_template("_console_entry.html")
         header = request.headers.get("last-event-id")
+        costs = request.state.user.costs
         offset = 0
         state: dict = {}
         if header and header.isdigit():
             # Rebuild the tool-name map, then resume after what was sent.
-            _, offset = transcript.read(path, 0, state)
+            _, offset = transcript.read(path, 0, state, costs)
             offset = min(offset, int(header))
 
         async def stream():
             nonlocal offset
             while not await request.is_disconnected():
-                entries, offset = transcript.read(path, offset, state)
+                entries, offset = transcript.read(path, offset, state,
+                                                  costs)
                 for en in entries:
                     yield _sse("entry", entry_tpl.render(en=en), offset)
                 alive = running_pid(adir) is not None
                 yield _sse("tick", "running" if alive else "finished")
                 if not alive and not entries:
                     # One last read to catch the final lines, then stop.
-                    entries, offset = transcript.read(path, offset, state)
+                    entries, offset = transcript.read(path, offset, state,
+                                                      costs)
                     for en in entries:
                         yield _sse("entry", entry_tpl.render(en=en), offset)
                     yield _sse("done", "")
                     return
                 await asyncio.sleep(1.0)
 
-        return StreamingResponse(stream(), media_type="text/event-stream",
-                                 headers={"Cache-Control": "no-cache"})
+        return _bounded(stream())
 
     @web.post("/console/kill", response_class=HTMLResponse)
-    def console_kill(dir: str = Form(...)):
+    def console_kill(user: Operator, dir: str = Form(...)):
         try:
-            pid = core.kill_agent(_attempt_dir(dir), "web")
+            pid = core.kill_agent(_attempt_dir(dir), user.by)
         except (LookupError, ValueError) as e:
             return HTMLResponse(f"<span class=warn>{escape(str(e))}</span>")
         return HTMLResponse(f"<span class=ok>killed pid {pid}</span>")
@@ -449,7 +568,7 @@ def create_app(root: Path) -> FastAPI:
             inv = core.reporter.gather(source, version)
         except LookupError:
             raise HTTPException(404) from None
-        report = core.reporter.render(inv)
+        report = core.reporter.render(inv, request.state.user.costs)
         flt = core.config.make_filter()
         why = core.explain([i["id"] for i in inv.items], flt)
         return page(request, "package.html", inv=inv, report=report,
@@ -464,9 +583,10 @@ def create_app(root: Path) -> FastAPI:
                         (source, version)))
 
     @web.get("/pkg/{source}/{version}/investigation.md")
-    def package_md(source: str, version: str):
+    def package_md(request: Request, source: str, version: str):
         try:
-            text = core.reporter.report(source, version)
+            text = core.reporter.report(source, version,
+                                        request.state.user.costs)
         except LookupError:
             raise HTTPException(404) from None
         return PlainTextResponse(text, media_type="text/markdown")
@@ -574,18 +694,19 @@ def create_app(root: Path) -> FastAPI:
                         " ORDER BY ts DESC LIMIT 30"))
 
     @web.post("/gates/decide", response_class=HTMLResponse)
-    def gate_decide(stage: str = Form(...), unit: str = Form(...),
-                    decision: str = Form(...), note: str = Form("")):
+    def gate_decide(user: Reviewer, stage: str = Form(...),
+                    unit: str = Form(...), decision: str = Form(...),
+                    note: str = Form("")):
         try:
-            core.approve(stage, [unit], decision, "web", note or None)
+            core.approve(stage, [unit], decision, user.by, note or None)
         except ValueError as e:
             raise HTTPException(400, str(e)) from None
         css = "ok" if decision == "approved" else "fail"
         return HTMLResponse(f"<span class='badge {css}'>{decision}</span>")
 
     @web.post("/gates/bulk", response_class=HTMLResponse)
-    def gate_bulk(stage: str = Form(...), units: str = Form(...),
-                  decision: str = Form(...)):
+    def gate_bulk(user: Reviewer, stage: str = Form(...),
+                  units: str = Form(...), decision: str = Form(...)):
         """Decide a whole bucket. Units need not be at the gate yet: a
         decision recorded ahead is honoured when a run reaches it."""
         try:
@@ -593,7 +714,7 @@ def create_app(root: Path) -> FastAPI:
             if not isinstance(ids, list) or not all(
                     isinstance(u, str) and u for u in ids):
                 raise ValueError("units must be a list of unit ids")
-            done = core.approve(stage, ids, decision, "web")
+            done = core.approve(stage, ids, decision, user.by)
         except (ValueError, json.JSONDecodeError) as e:
             raise HTTPException(400, str(e)) from None
         css = "ok" if decision == "approved" else "fail"
@@ -601,9 +722,10 @@ def create_app(root: Path) -> FastAPI:
                             f" {len(done)}</span>")
 
     @web.post("/retry", response_class=HTMLResponse)
-    def retry(stage: str = Form(...), unit: str = Form(...)):
+    def retry(user: Reviewer, stage: str = Form(...),
+              unit: str = Form(...)):
         try:
-            core.retry(stage, [unit], "web")
+            core.retry(stage, [unit], user.by)
         except ValueError as e:
             raise HTTPException(400, str(e)) from None
         return HTMLResponse("<span class='badge pending'>retry requested;"
@@ -616,7 +738,8 @@ def create_app(root: Path) -> FastAPI:
 
     # -- costs, snapshots, files ------------------------------------------
 
-    @web.get("/costs", response_class=HTMLResponse)
+    @web.get("/costs", response_class=HTMLResponse,
+             dependencies=[Depends(require(Role.VIEWER))])
     def costs(request: Request):
         return page(request, "costs.html", L=q.ledger(core.db))
 
@@ -637,8 +760,10 @@ def create_app(root: Path) -> FastAPI:
                     a=a, b=b)
 
     @web.get("/file")
-    def file(path: str):
+    def file(request: Request, path: str):
         p = readable_path(path)
+        if p.name in COST_FILES and not request.state.user.costs:
+            raise HTTPException(403, "this file records costs: log in")
         if p.is_dir():
             listing = "\n".join(sorted(
                 c.name + ("/" if c.is_dir() else "") for c in p.iterdir()))
@@ -659,6 +784,77 @@ def create_app(root: Path) -> FastAPI:
     @web.get("/healthz")
     def healthz():
         return {"ok": True}
+
+    # -- login ------------------------------------------------------------
+
+    def _cookie(response: Response, name: str, value: str,
+                ttl_s: float) -> None:
+        response.set_cookie(name, value, max_age=int(ttl_s), path="/",
+                            httponly=True, samesite="lax",
+                            secure=auth.secure)
+
+    def _message(request: Request, title: str, text: str,
+                 status: int = 200) -> HTMLResponse:
+        # `text` is ours, never user input: it may carry a link.
+        r = page(request, "message.html", title=title, text=Markup(text))
+        r.status_code = status
+        return r
+
+    @web.get("/login")
+    def login(next: str = "/"):
+        """Off to Launchpad, with the request token's secret kept in a
+        signed cookie of this browser until it comes back."""
+        if auth is None:
+            raise HTTPException(404, "no login: [web.auth] is not set")
+        try:
+            token, secret = launchpad.request_token()
+        except LoginError as e:
+            raise HTTPException(502, str(e)) from None
+        response = RedirectResponse(launchpad.authorize_url(
+            token, f"{auth.public_url}/auth/callback"), status_code=303)
+        _cookie(response, OAUTH_COOKIE, signer.dumps("oauth", {
+            "token": token, "secret": secret,
+            "next": local_path(next)}, OAUTH_TTL_S), OAUTH_TTL_S)
+        return response
+
+    @web.get("/auth/callback")
+    def auth_callback(request: Request, oauth_token: str = ""):
+        if auth is None:
+            raise HTTPException(404)
+        pending = signer.loads("oauth", request.cookies.get(OAUTH_COOKIE))
+        if not pending or (oauth_token and
+                           oauth_token != pending["token"]):
+            return _message(request, "Login expired",
+                            "This login was started elsewhere or too long"
+                            " ago. <a href='/login'>Log in again</a>.",
+                            400)
+        try:
+            token, secret = launchpad.access_token(pending["token"],
+                                                   pending["secret"])
+        except LoginError:
+            return _message(request, "Not logged in",
+                            "Launchpad did not grant access, so you are"
+                            " not logged in. <a href='/login'>Try"
+                            " again</a>.", 403)
+        try:
+            name = launchpad.whoami(token, secret)
+            teams = (launchpad.teams(name) & auth.names
+                     if auth.names - {name} else set())
+        except LoginError as e:
+            raise HTTPException(502, str(e)) from None
+        # The token only proved who this is: it is not kept.
+        response = RedirectResponse(pending["next"], status_code=303)
+        ttl = auth.session_days * 86400
+        _cookie(response, SESSION_COOKIE, signer.dumps(
+            "session", {"name": name, "teams": sorted(teams)}, ttl), ttl)
+        response.delete_cookie(OAUTH_COOKIE, path="/")
+        return response
+
+    @web.post("/logout")
+    def logout(user: Anyone):
+        response = Response(headers={"HX-Redirect": "/"})
+        response.delete_cookie(SESSION_COOKIE, path="/")
+        return response
 
     return web
 

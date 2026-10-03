@@ -23,8 +23,8 @@ from ftbfs.web.app import create_app, host_name
 
 ROOT = Path(__file__).parent.parent
 FIXTURE = Path(__file__).parent / "fixtures" / "ftbfs-2026-09-27.html.gz"
-HX = {"HX-Request": "true"}
 BASE = "http://127.0.0.1:8047"
+HX = {"HX-Request": "true", "Origin": BASE}
 
 
 def result(app, unit, stage, status, data, utype="item", run_id=None,
@@ -173,6 +173,7 @@ def test_gate_decision_from_ui(client, project):
     assert r.status_code == 200 and "approved" in r.text
     gate = app.db.one("SELECT * FROM gate WHERE unit_id=? AND"
                       " stage='dev'", (iid,))
+    # no [web.auth]: the person at the machine, recorded as "web"
     assert gate["decision"] == "approved" and gate["by"] == "web"
     assert app.db.one("SELECT 1 FROM event WHERE type='gate_approved'"
                       " AND unit=?", (iid,))
@@ -226,8 +227,14 @@ def test_next_steps_inbox(client, project):
 
 
 def test_guards(client, project):
-    assert client.post("/retry", data={"stage": "dev", "unit": "x"}
+    assert client.post("/retry", data={"stage": "dev", "unit": "x"},
+                       headers={"Origin": BASE}
                        ).status_code == 403  # no HX-Request
+    for origin in ("http://evil.example", "http://127.0.0.1:9999",
+                   "null", ""):
+        r = client.post("/retry", data={"stage": "dev", "unit": "x"},
+                        headers={"HX-Request": "true", "Origin": origin})
+        assert r.status_code == 403, origin
     for host in ("evil.example", "192.0.2.1:8047", "127.0.0.1.evil",
                  ""):
         assert client.get("/", headers={"host": host}).status_code == 403
@@ -269,18 +276,22 @@ def test_security_headers(client):
     assert h["x-content-type-options"] == "nosniff"
 
 
-def test_allowed_hosts_from_config(tmp_path):
+def test_no_auth_serves_loopback_only(tmp_path):
+    """Fail closed: without [web.auth], neither another host name nor a
+    bind beyond loopback (tests/test_auth.py has the configured case)."""
+    from ftbfs.config import load_config
+    from ftbfs.web.auth import check_serving
+
     shutil.copy(ROOT / "pipeline.toml", tmp_path)
     shutil.copy(ROOT / "config.toml", tmp_path)
+    check_serving(load_config(tmp_path), "127.0.0.1")
+    for bind in ("0.0.0.0", "192.0.2.1", "::"):
+        with pytest.raises(ValueError, match="loopback only"):
+            check_serving(load_config(tmp_path), bind)
     (tmp_path / "config.local.toml").write_text(
-        '[web]\nallowed_hosts = ["ftbfs.example.org", "192.0.2.1"]\n')
-    c = TestClient(create_app(tmp_path), base_url=BASE)
-    assert c.get("/healthz").status_code == 403  # loopback not listed
-    for host in ("ftbfs.example.org", "FTBFS.example.org:443",
-                 "192.0.2.1:8047"):
-        assert c.get("/healthz", headers={"host": host}).status_code == 200
-    assert c.get("/healthz", headers={"host": "example.org"}
-                 ).status_code == 403
+        '[web]\nallowed_hosts = ["ftbfs.example.org", "127.0.0.1"]\n')
+    with pytest.raises(ValueError, match="ftbfs.example.org"):
+        create_app(tmp_path)
 
 
 def test_host_name():
