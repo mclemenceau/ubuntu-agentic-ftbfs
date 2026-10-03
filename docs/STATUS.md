@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-10-01.
+Last updated: 2026-10-03.
 
 ftbfs runs end to end on the Ubuntu development series: ingest,
 excerpts, classification, Debian facts, triage and diagnosis on every
@@ -24,6 +24,7 @@ per package, reviewed on the web UI. Measured results are in
 | 9 | Next steps inbox as the landing page | 40257ab |
 | 10 | Build hosts: a pool of LXD workers | ffc1581 |
 | 11 | Publication: site config split, GPLv3, review, CI, docs | fe7e456 and later |
+| 12 | Web login with Launchpad, roles, public reading without costs | 2b3590a |
 
 The first full run to diagnose was run 22 (2026-09-27). Batches of dev
 and verify followed (runs 27 to 31, up to 2026-09-30).
@@ -32,9 +33,6 @@ and verify followed (runs 27 to 31, up to 2026-09-30).
 
 Planned, in rough order. This is the one place that lists them.
 
-- **Web authentication and roles.** A login, with roles for reviewing
-  gates and for starting runs, and events recorded per person. Until
-  then the UI is for loopback only.
 - **`adversarial_review` stage.** A second agent reviews each verified
   debdiff for unneeded or risky changes and loops back to dev on
   failure. "Verified" only means it builds: xfaces' fix still carries a

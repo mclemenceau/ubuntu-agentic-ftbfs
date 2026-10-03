@@ -39,6 +39,11 @@ ARGS='--source xfaces'`, ...).
   then comes with a test that fails without the fix.
 - Anything that touches Launchpad, Debian or a forge stays behind a
   manual gate. Nothing is filed or uploaded automatically.
+- A web control is a POST route that declares the role it needs
+  (`user: Reviewer` or `user: Operator` in `ftbfs/web/app.py`) and
+  passes `user.by` to `App`. Anything showing money or tokens checks
+  `user.costs`; `tests/test_auth.py` crawls every page anonymously and
+  fails on a cost it finds, and on a GET route it does not know.
 
 ### Changes that re-run paid stages
 

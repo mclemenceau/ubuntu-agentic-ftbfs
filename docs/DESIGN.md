@@ -288,15 +288,48 @@ than two. Controls shared with the CLI cannot drift from it.
 **Rejected.** A single-page app with a JSON API: a build toolchain and
 a second codebase for no capability the pages need.
 
-## Web access
+## Web access: public reading, Launchpad login for actions
 
-**Today.** The UI has no login. It binds to loopback, answers only to
-the host names in `[web] allowed_hosts` (which also stops DNS
-rebinding), accepts POSTs only with htmx's `HX-Request` header (a
-cross-site form cannot send it), and sends a strict
-Content-Security-Policy. Anyone who can reach it can start runs and
-approve gates, so it is for loopback only. Authentication with roles is
-planned (see `STATUS.md`); this section will record that decision.
+**Choice.** Anyone can read every page except costs. Acting needs a
+Launchpad login and a role from `[web.roles]` in the local config:
+`viewer` sees costs, `reviewer` decides gates, dispositions and retries,
+`operator` starts, pauses and cancels runs and kills agents (each role
+includes the ones before it). Roles name Launchpad people or teams.
+The login is Launchpad's OAuth 1.0a flow, asking only for read access
+to public data; `+me` names the person, the token is then dropped, and
+a signed cookie (`HttpOnly`, `SameSite=Lax`, 30 days) holds the name and
+the role-granting teams seen at login. The role is worked out from the
+config at each request. Each POST route declares the role it needs
+(`require`), and a test walks every route so a new one cannot forget.
+Events and gates record `web:<login>`. Without `[web.auth]`, the UI
+serves loopback only and its user is an operator: no login on a laptop.
+On top of the roles: the Host check (`[web] allowed_hosts`, which also
+stops DNS rebinding), POSTs only from htmx with an `Origin` of this very
+host, a strict Content-Security-Policy, a daily cost cap on runs
+started from the web, and a bound on open live streams.
+
+**Why.** The data comes from public build logs, and a public view helps
+the Ubuntu developers who would act on it; money is the one thing kept
+for people with a role. Launchpad is the identity Ubuntu developers
+already have, and its teams (`~ubuntu-dev`, a review team) map to roles
+without a separate allowlist to maintain. The flow needs no registered
+application or client secret. Roles in the config, not the database,
+make "who can spend money" a config review.
+
+**Rejected.**
+- GitHub OAuth: an OAuth app and a client secret to manage, and an
+  identity that is not the one Ubuntu work uses.
+- oauth2-proxy in front: one more service, and the app would trust a
+  header that anything reaching it directly could forge.
+- Ubuntu One (OpenID 2.0): few maintained libraries.
+- Local passwords: storage and resets to maintain.
+- Roles granted from the database or the UI: a compromised reviewer
+  session could promote itself.
+
+**Costs of the choice.** Launchpad's consent page reads like an API
+grant ("Read non private Data"), and each login leaves one read-only
+token in the person's "Authorized applications" list, which only they
+can revoke. Team membership is read at login and only when public.
 
 ## Evidence
 

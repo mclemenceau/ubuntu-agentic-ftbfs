@@ -42,8 +42,8 @@ It holds:
 - `[backend.opencode] api_keys`: the key files (see "Dedicated
   OpenRouter key").
 - `[builders.*]`: the build hosts (see "Build hosts").
-- `[web] allowed_hosts`: the host names the web UI answers to
-  (loopback by default; any other Host header gets 403).
+- `[web]`, `[web.auth]`, `[web.roles]`: who can reach the web UI and
+  what they can do (see "Web access").
 - `[agents] default_backend`: see "Choosing the agent backend".
 
 ## Commands
@@ -118,6 +118,45 @@ through the same code as the CLI and are recorded as events. Pages:
 - **Gates** and **Attention** (errors, needs-human, exhausted loops)
 - **Items**, **Clusters**, **Signals**, **Costs** (by stage, model, run
   and package) and **Snapshots** (new, regressed, gone between any two)
+
+### Web access
+
+Without `[web.auth]`, the UI is for the person at the machine: it
+serves loopback only (`serve --host` anything else is refused) and
+needs no login. To open it to others, configure a Launchpad login in
+`config.local.toml` (the example has every key):
+
+1. Create the session secret, which signs the login cookies:
+   ```sh
+   install -m 600 /dev/null ~/.config/ftbfs/session.key
+   head -c 32 /dev/urandom | base64 > ~/.config/ftbfs/session.key
+   ```
+2. Set `[web] public_url` (the address people use; Launchpad sends them
+   back to `<public_url>/auth/callback`), add its host name to `[web]
+   allowed_hosts`, set `session_secret_file`, and `[web.auth] provider
+   = "launchpad"`.
+3. Grant roles by Launchpad name or team (public membership only):
+   ```toml
+   [web.roles]
+   viewer = ["~ubuntu-dev"]        # sees costs
+   reviewer = ["~my-review-team"]  # gates, dispositions, retries
+   operator = ["me"]               # runs, pause/cancel, kill agents
+   ```
+   Restart `ftbfs serve` after a change. Removing someone takes effect
+   at the restart; a team's members are read when they log in.
+4. Serve behind a TLS proxy (the UI itself speaks plain HTTP), with
+   `ftbfs serve` on loopback.
+
+Anyone can read every page except costs. People log in with "log in
+with Launchpad" at the top right; Launchpad asks them to allow "Read
+non private Data", and each login adds one entry to their "Authorized
+applications" on Launchpad, which they can revoke there. Actions are
+recorded as `web:<login>` on the timeline and the gates. `[web]
+daily_cost_cap` (USD per UTC day, default 10) stops the UI from
+starting runs once web-started runs have spent that much; the CLI is not
+capped.
+
+### Reports
 
 `investigation.md` is stitched from one Jinja partial per stage
 (`ftbfs/templates/stages/<stage>.md.j2`) in DAG order; the summary and
@@ -528,8 +567,5 @@ restarted at any time without disturbing a run.
   which is not set up yet.
 - **Dev per arch:** dev runs once per failing arch, not once per source.
   Approve one arch per package for now.
-- **Local only:** the UI has no authentication. It binds to loopback
-  and answers only to the host names in `[web] allowed_hosts`
-  (loopback by default). Do not expose it.
 
 What is planned to lift these is in `STATUS.md`, "Roadmap".

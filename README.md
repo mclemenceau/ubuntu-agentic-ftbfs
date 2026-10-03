@@ -182,8 +182,9 @@ builds) costs about $10 in tokens up to diagnose; see
 | [`SECURITY.md`](SECURITY.md) | threat model, reporting a vulnerability |
 | [`docs/STATUS.md`](docs/STATUS.md) | history, roadmap, open issues |
 
-The web UI has no authentication yet: it binds to loopback and answers
-only to the host names in `[web] allowed_hosts`. Do not expose it.
+The web UI serves loopback only until a Launchpad login is configured;
+then anyone can read it (except costs), and people act according to
+the roles they are given. See `docs/OPERATIONS.md`, "Web access".
 
 ## License
 
