@@ -453,6 +453,21 @@ def cmd_control(app: App, a) -> None:
     print(f"run {run_id}: {a.action}")
 
 
+def cmd_relocate(app: App, a) -> None:
+    from .relocate import relocate
+
+    try:
+        rel = relocate(app, Path(a.old_root), a.dry_run)
+    except ValueError as e:
+        sys.exit(str(e))
+    fields = ", ".join(f"{t} {n}" for t, n in rel.fields.items())
+    print(f"{'would rewrite' if rel.dry_run else 'rewrote'} {rel.old}/"
+          f" -> {rel.new}/")
+    print(f"  database values: {fields or 'none'}")
+    print(f"  results moved onto a new inputs hash: {rel.hashes}")
+    print(f"  symlinks under work/ and cache/: {rel.links}")
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="ftbfs")
     p.add_argument("--root", default=".", help="project directory")
@@ -565,6 +580,14 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("action", choices=["pause", "resume", "cancel"])
     s.add_argument("--run", type=int)
     s.set_defaults(func=cmd_control)
+
+    s = sub.add_parser("relocate", help="after moving the project"
+                       " directory: rewrite paths under the old root,"
+                       " keeping cached results cached")
+    s.add_argument("old_root", help="the directory it was moved from")
+    s.add_argument("--dry-run", action="store_true",
+                   help="count what would change, change nothing")
+    s.set_defaults(func=cmd_relocate)
 
     a = p.parse_args(argv)
     app = App(Path(a.root).resolve())

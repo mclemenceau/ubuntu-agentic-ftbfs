@@ -166,6 +166,13 @@ class Scheduler:
         }
         return _stable_hash(blob)
 
+    def hash_now(self, spec: StageSpec, uid: str) -> str:
+        """The inputs hash this unit would have now, whatever its
+        dependencies' status, `when` or gate say (for relocate)."""
+        ctx = self._context(spec, {uid: 0})
+        deps = self._dep_results(spec, uid, spec.after)
+        return self.inputs_hash(spec, uid, ctx, deps)
+
     def decide(self, spec: StageSpec, uid: str, ctx: Context) -> Decision:
         deps = self._dep_results(spec, uid, spec.after)
         for name, d in deps.items():

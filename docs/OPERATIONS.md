@@ -548,6 +548,24 @@ parallel = 4
 - From time to time, prune entries for packages that are gone from the
   FTBFS list.
 
+### Moving an instance
+
+Results, events and snapshots record absolute paths, and those results
+are part of the cache key of the stages after them. After moving the
+project directory, or copying `state/`, `work/` and `cache/` to
+another machine (docs/DEPLOYMENT.md), run from the new directory:
+
+```sh
+uv run ftbfs relocate --dry-run /old/project/dir   # counts only
+uv run ftbfs relocate /old/project/dir
+```
+
+It rewrites the old directory in the database and in the symlinks
+under `work/` and `cache/`, and moves each cached result onto the
+inputs hash its rewritten upstream data gives, so the next run plans
+the same work as before the move: compare the Next steps preview
+before and after. Run it between runs, never during one.
+
 ## Emergency controls
 
 | Situation | Action |
