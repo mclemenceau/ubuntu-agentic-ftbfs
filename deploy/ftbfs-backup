@@ -1,0 +1,27 @@
+#!/bin/sh
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Back up an ftbfs instance into DEST (docs/DEPLOYMENT.md, "Backups"):
+# a consistent copy of the database (sqlite3 .backup, safe during a
+# run), the ingest snapshots, the opencode sessions and work/. cache/
+# is left out: it refills itself. Keeps the last KEEP database copies;
+# work/ is mirrored.
+#
+#   ftbfs-backup DEST [ROOT]
+set -eu
+dest=${1:?usage: ftbfs-backup DEST [ROOT]}
+root=${2:-/srv/ftbfs}
+keep=${KEEP:-14}
+ts=$(date -u +%Y%m%dT%H%M%SZ)
+
+mkdir -p "$dest/db"
+sqlite3 "$root/state/ftbfs.db" ".backup '$dest/db/ftbfs-$ts.db.tmp'"
+mv "$dest/db/ftbfs-$ts.db.tmp" "$dest/db/ftbfs-$ts.db"
+ls -1 "$dest/db"/ftbfs-*.db | head -n "-$keep" | xargs -r rm --
+for d in state/snapshots state/opencode work; do
+    [ -d "$root/$d" ] || continue
+    mkdir -p "$dest/$d"
+    rsync -a --delete "$root/$d/" "$dest/$d/"
+done
+echo "backed up $root to $dest (db/ftbfs-$ts.db)"

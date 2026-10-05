@@ -1,0 +1,17 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# One pass of the pipeline over a fresh FTBFS list. Started by
+# ftbfs-daily.timer; systemd never starts it twice at once.
+[Unit]
+Description=ftbfs daily run
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ftbfs
+Group=ftbfs
+WorkingDirectory=/srv/ftbfs
+Environment=PATH=/snap/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/snap/bin/uv run --frozen ftbfs run --ingest

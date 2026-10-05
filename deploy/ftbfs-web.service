@@ -1,0 +1,21 @@
+# Copyright (C) 2026 Matthieu Clemenceau
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# The web UI on loopback; a proxy or tunnel brings it to the network
+# (docs/DEPLOYMENT.md).
+[Unit]
+Description=ftbfs web UI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ftbfs
+Group=ftbfs
+WorkingDirectory=/srv/ftbfs
+Environment=PATH=/snap/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/snap/bin/uv run --frozen ftbfs serve --port 8047
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
