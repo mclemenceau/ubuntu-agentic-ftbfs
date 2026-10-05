@@ -13,7 +13,10 @@ User=ftbfs
 Group=ftbfs
 WorkingDirectory=/srv/ftbfs
 Environment=PATH=/snap/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/snap/bin/uv run --frozen ftbfs serve --port 8047
+ExecStart=/srv/ftbfs/.venv/bin/ftbfs serve --port 8047
+# Runs started from the UI are detached children in this service's
+# cgroup: a restart of the UI must stop the server only, not them.
+KillMode=process
 Restart=on-failure
 RestartSec=5
 

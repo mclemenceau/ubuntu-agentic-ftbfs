@@ -14,4 +14,4 @@ User=ftbfs
 Group=ftbfs
 WorkingDirectory=/srv/ftbfs
 Environment=PATH=/snap/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/snap/bin/uv run --frozen ftbfs run --ingest
+ExecStart=/srv/ftbfs/.venv/bin/ftbfs run --ingest
