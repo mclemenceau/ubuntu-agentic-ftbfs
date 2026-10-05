@@ -1,7 +1,7 @@
 # Deploying ftbfs on a server
 
 How to run ftbfs as a service: the web UI reachable from the internet
-with Launchpad login, a daily run, backups, with builds in LXD worker
+with Launchpad login, a daily run, snapshots, with builds in LXD worker
 containers on other hosts. The reference setup is an LXD VM, but any
 Ubuntu machine works the same way. For day-to-day running see
 `OPERATIONS.md`; for what is exposed and why, `../SECURITY.md`.
@@ -24,8 +24,8 @@ used there.
 
 Builds run on the LXD hosts, so the server only needs room for the web
 UI, the agents and the state: 2 vCPU and 4 GB of memory are enough.
-Size the disk for `work/` and `cache/` plus their backups (about 4 GB
-after a month of runs on the default selection) with ample margin:
+Size the disk for `work/` and `cache/` (about 4 GB after a month of
+runs on the default selection) with ample margin:
 
 ```sh
 lxc launch ubuntu:26.04 <host>:ftbfs --vm -c limits.cpu=2 \
@@ -147,14 +147,11 @@ The units ship in `deploy/`. As root:
 
 ```sh
 cd /srv/ftbfs/deploy
-for u in ftbfs-web.service ftbfs-daily.service ftbfs-daily.timer \
-         ftbfs-backup.service ftbfs-backup.timer; do
+for u in ftbfs-web.service ftbfs-daily.service ftbfs-daily.timer; do
   ln -sf /srv/ftbfs/deploy/$u /etc/systemd/system/$u
 done
-install -d -o ftbfs -g ftbfs -m 750 /var/backups/ftbfs
 systemctl daemon-reload
-systemctl enable --now ftbfs-web.service ftbfs-daily.timer \
-  ftbfs-backup.timer
+systemctl enable --now ftbfs-web.service ftbfs-daily.timer
 ```
 
 - `ftbfs-web`: `ftbfs serve` on 127.0.0.1:8047, restarted on failure.
@@ -164,7 +161,6 @@ systemctl enable --now ftbfs-web.service ftbfs-daily.timer \
 - `ftbfs-daily.timer`: `ftbfs run --ingest` at 05:00 UTC. systemd never
   starts it twice at once; a run started from the web UI meanwhile is
   refused by ftbfs itself.
-- `ftbfs-backup.timer`: step 7, at 03:30 UTC.
 
 Logs go to the journal: `journalctl -u ftbfs-web`, `journalctl -u
 ftbfs-daily`. A run's own log is also in `state/runs/`.
@@ -208,44 +204,50 @@ with Launchpad, and check that your actions are recorded as
 
 ## 7. Backups
 
-`deploy/ftbfs-backup DEST` writes a consistent copy of the database
-(`sqlite3 .backup`, safe during a run) to `DEST/db/`, keeping the last
-14, and mirrors `state/snapshots/`, `state/opencode/` and `work/` into
-`DEST`. `cache/` is left out: it refills itself. The timer runs it into
-`/var/backups/ftbfs` every day.
-
-That copy is on the server's disk: copy it off. `deploy/ftbfs-backup-
-pull <host>:<instance> DEST` does it incrementally from any machine the
-LXD host trusts (rsync over `lxc exec`, no ssh). As a daily user timer
-there, `~/.config/systemd/user/ftbfs-backup-pull.service`:
-
-```
-[Service]
-Type=oneshot
-Environment=PATH=/snap/bin:/usr/bin:/bin
-ExecStart=%h/ubuntu-agentic-ftbfs/deploy/ftbfs-backup-pull <host>:ftbfs %h/Backups/ftbfs
-```
-
-and `ftbfs-backup-pull.timer` with `OnCalendar=*-*-* 09:00:00` and
-`Persistent=true`, enabled with `systemctl --user enable --now
-ftbfs-backup-pull.timer`. The first pull copies everything (3 GB in
-under a minute on a LAN); later ones only the changes.
-
-**Restore** into an instance directory `R` (a fresh checkout with its
-`config.local.toml`):
+The server's state is the VM itself: let LXD snapshot it on a schedule,
+on the host:
 
 ```sh
-B=~/Backups/ftbfs
-install -d R/state
-cp "$(ls $B/db/*.db | tail -n 1)" R/state/ftbfs.db
-cp -r $B/state/snapshots $B/state/opencode R/state/
-cp -a $B/work R/work
-cd R && uv run ftbfs relocate /srv/ftbfs   # only if R is elsewhere
-uv run ftbfs status
+lxc config set <host>:ftbfs snapshots.schedule="30 3 * * *" \
+  snapshots.expiry=14d snapshots.pattern=auto-%d
+lxc info <host>:ftbfs          # Snapshots: the list
 ```
 
-Then compare the Next steps preview with the server's: it must plan
-the same work. This was checked on the first deployment.
+A snapshot of the running VM is crash-consistent, which SQLite in WAL
+mode recovers from by design, and on zfs or btrfs it is instant and
+only grows with the changes. Pick the time away from the daily run. The
+snapshots live in the host's storage pool: they cover a broken VM or a
+bad update, not the loss of the host's disk. For that, copy a snapshot
+elsewhere now and then (`lxc export <host>:ftbfs --instance-only` or
+`lxc copy` to another host).
+
+**Restore.** Roll the whole VM back, code and config included:
+
+```sh
+lxc restore <host>:ftbfs auto-<n>
+```
+
+or, to look at an old state without touching the server, start a copy,
+with no tunnel on it (a copy of `cloudflared` would serve the public
+name too) and gone before its daily timer fires:
+
+```sh
+lxc copy <host>:ftbfs/auto-<n> <host>:ftbfs-restore
+lxc start <host>:ftbfs-restore
+lxc exec <host>:ftbfs-restore -- systemctl disable --now cloudflared \
+  ftbfs-daily.timer
+...
+lxc delete -f <host>:ftbfs-restore
+```
+
+On the first deployment, a copy started from a snapshot showed the same
+`ftbfs status` and planned the same work as the server.
+
+On a machine that is not an LXD instance, back up `state/ftbfs.db` with
+`sqlite3 state/ftbfs.db ".backup <file>"` (safe during a run), plus
+`state/snapshots/`, `state/opencode/` and `work/`; `cache/` refills
+itself. Restoring into another directory needs `ftbfs relocate`
+(step 8).
 
 ## 8. Moving an existing instance
 
@@ -275,14 +277,17 @@ verdicts, verified fixes and cost history:
 ## 9. Updating and rolling back
 
 Between runs (`ftbfs status`: none running; the daily one starts at
-05:00 UTC), as `ftbfs`:
+05:00 UTC), take a snapshot first (`lxc snapshot <host>:ftbfs
+pre-v<X.Y.Z>`), then as `ftbfs`:
 
 ```sh
 cd /srv/ftbfs
 git fetch --tags && git checkout v<X.Y.Z>    # or: git pull --ff-only
 uv sync --frozen
-sudo systemctl restart ftbfs-web             # as root
 ```
+
+and as root, `systemctl daemon-reload` (the units in `deploy/` may have
+changed) and `systemctl restart ftbfs-web`.
 
 The daily service starts a fresh process each time, so it needs no
 restart. Read the release notes first: a change to `pipeline.toml`, a
@@ -291,5 +296,5 @@ follows it, which can cost tokens.
 
 Roll back with `git checkout <previous tag>`, `uv sync --frozen` and a
 restart. The database schema only migrates forward: if the newer
-release migrated it, also restore the last backup taken before the
-update (step 7).
+release migrated it, restore the snapshot taken before the update
+instead (step 7).
