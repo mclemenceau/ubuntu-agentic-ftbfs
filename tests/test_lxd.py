@@ -5,6 +5,7 @@
 to a local directory and runs its commands locally, with a fake sbuild
 that writes a timestamped .build log and its symlink like sbuild."""
 
+import json
 import shutil
 import stat
 import subprocess
@@ -20,6 +21,8 @@ from ftbfs.builder.lxd import (
     Lxd,
     LxdBuilder,
     LxdError,
+    build_image,
+    copy_image,
     dsc_files,
     image_script,
 )
@@ -249,3 +252,166 @@ def test_image_script():
     assert script.count("mmdebstrap --mode=unshare") == 2
     assert f"{HOME}/.cache/sbuild/stonking-proposed-i386.tar" in script
     assert "stonking-proposed main universe" in script
+
+
+class ImageHost(Lxd):
+    """An LXD host's images and aliases behind the real `run`
+    arguments. Like `lxc`, a command that names no remote for its
+    target goes to the local LXD, which is out of reach here (as on
+    the server, where the ftbfs user is not in the lxd group)."""
+
+    def __init__(self, remote, aliases=None, fail=()):
+        super().__init__(remote)
+        self.aliases: dict[str, str] = dict(aliases or {})
+        self.images: set[str] = set(self.aliases.values())
+        self.fail = fail  # subcommands that fail, e.g. a full disk
+        self.published = 0
+
+    def instance(self, name):
+        return None
+
+    def launch(self, image, name, config):
+        pass
+
+    def sh(self, name, script, *, user=False, timeout=600):
+        return ""
+
+    def delete(self, name):
+        pass
+
+    def _mine(self, ref):
+        if not ref.startswith(f"{self.remote}:"):
+            raise LxdError('LXD unix socket "/var/snap/lxd/common/lxd/'
+                           'unix.socket" not accessible: permission'
+                           ' denied')
+        return ref.split(":", 1)[1]
+
+    def run(self, *args, timeout=600):
+        if args[0] in self.fail or args[:2] in self.fail:
+            raise LxdError(f"lxc {args[0]}: failed")
+        match args:
+            case ("query", ref):
+                path = self._mine(ref)
+                alias = path.removeprefix("/1.0/images/aliases/")
+                if alias in self.aliases:
+                    return json.dumps({"target": self.aliases[alias]})
+                fp = path.removeprefix("/1.0/images/")
+                if fp in self.images:
+                    return json.dumps({"fingerprint": fp})
+                raise LxdError("Error: Not Found")
+            case ("query", "-X", "PATCH", "--data", data, ref):
+                alias = self._mine(ref).removeprefix(
+                    "/1.0/images/aliases/")
+                assert alias in self.aliases
+                self.aliases[alias] = json.loads(data)["target"]
+            case ("stop", ref):
+                self._mine(ref)
+            case ("publish", ref, *rest):
+                self._mine(ref)
+                dest = [a for a in rest if a.endswith(":")]
+                self._mine(dest[0] if dest else "local:")
+                self.published += 1
+                fp = f"new{self.published}"
+                self.images.add(fp)
+                if "--alias" in rest:
+                    alias = rest[rest.index("--alias") + 1]
+                    assert alias not in self.aliases
+                    self.aliases[alias] = fp
+            case ("image", "alias", "create", ref, fp):
+                alias = self._mine(ref)
+                assert alias not in self.aliases and fp in self.images
+                self.aliases[alias] = fp
+            case ("image", "alias", "delete", ref):
+                del self.aliases[self._mine(ref)]
+            case ("image", "delete", ref):
+                fp = self._mine(ref)
+                assert fp not in self.aliases.values()
+                self.images.discard(fp)
+            case _:
+                raise AssertionError(f"unexpected lxc {args}")
+        return ""
+
+
+class Hosts:
+    """`lxc image copy --mode=push` between ImageHosts."""
+
+    def __init__(self, *hosts):
+        self.by_remote = {h.remote: h for h in hosts}
+        for h in hosts:
+            h.run = self._run(h, h.run)
+
+    def _run(self, host, run):
+        def wrapped(*args, timeout=600):
+            if args[:2] != ("image", "copy"):
+                return run(*args, timeout=timeout)
+            if "copy" in host.fail:
+                raise LxdError("lxc image copy: failed")
+            src = host._mine(args[3])
+            fp = host.aliases.get(src, src)
+            dst = self.by_remote[args[4].rstrip(":")]
+            assert fp not in dst.images
+            dst.images.add(fp)
+            if "--alias" in args:
+                alias = args[args.index("--alias") + 1]
+                assert alias not in dst.aliases
+                dst.aliases[alias] = fp
+            return ""
+        return wrapped
+
+
+def test_build_image_publishes_on_the_builder_host():
+    host = ImageHost("laptop", {"ftbfs-builder": "old"})
+    fp = build_image(host, "stonking", ["amd64"], log=lambda m: None)
+    assert fp == "new1"
+    assert host.aliases == {"ftbfs-builder": "new1"}
+    assert host.images == {"new1"}
+
+
+def test_build_image_first_time():
+    host = ImageHost("laptop")
+    assert build_image(host, "stonking", ["amd64"],
+                       log=lambda m: None) == "new1"
+    assert host.aliases == {"ftbfs-builder": "new1"}
+
+
+def test_failed_publish_keeps_the_old_image():
+    host = ImageHost("laptop", {"ftbfs-builder": "old"},
+                     fail=("publish",))
+    with pytest.raises(LxdError):
+        build_image(host, "stonking", ["amd64"], log=lambda m: None)
+    assert host.aliases == {"ftbfs-builder": "old"}
+    assert host.images == {"old"}
+
+
+def test_build_image_after_an_interrupted_one():
+    host = ImageHost("laptop", {"ftbfs-builder": "old",
+                                "ftbfs-builder-new": "stale"})
+    build_image(host, "stonking", ["amd64"], log=lambda m: None)
+    assert host.aliases == {"ftbfs-builder": "new1"}
+
+
+def test_copy_image_moves_the_alias_after_the_copy():
+    src = ImageHost("laptop", {"ftbfs-builder": "new"})
+    dst = ImageHost("marsangle", {"ftbfs-builder": "old"})
+    Hosts(src, dst)
+    assert copy_image(src, dst) == "new"
+    assert dst.aliases == {"ftbfs-builder": "new"}
+    assert dst.images == {"new"}
+
+
+def test_failed_copy_keeps_the_old_image():
+    src = ImageHost("laptop", {"ftbfs-builder": "new"}, fail=("copy",))
+    dst = ImageHost("marsangle", {"ftbfs-builder": "old"})
+    Hosts(src, dst)
+    with pytest.raises(LxdError):
+        copy_image(src, dst)
+    assert dst.aliases == {"ftbfs-builder": "old"}
+
+
+def test_copy_image_when_the_image_is_already_there():
+    src = ImageHost("laptop", {"ftbfs-builder": "new"})
+    dst = ImageHost("marsangle", {"ftbfs-builder": "old"})
+    dst.images.add("new")
+    Hosts(src, dst)
+    copy_image(src, dst)
+    assert dst.aliases == {"ftbfs-builder": "new"}

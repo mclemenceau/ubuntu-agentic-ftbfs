@@ -94,6 +94,19 @@ class Lxd:
         found = self.query(f"/1.0/images/aliases/{alias}")
         return found["target"] if found else None
 
+    def has_image(self, fp: str) -> bool:
+        return self.query(f"/1.0/images/{fp}") is not None
+
+    def set_alias(self, alias: str, fp: str) -> None:
+        """Point `alias` at image `fp`, in one step when it exists: a
+        failure leaves it on the old image, never on nothing."""
+        if self.image(alias) is None:
+            self.run("image", "alias", "create", self.ref(alias), fp)
+            return
+        self.run("query", "-X", "PATCH", "--data",
+                 json.dumps({"target": fp}),
+                 f"{self.remote}:/1.0/images/aliases/{alias}")
+
     def launch(self, image: str, name: str, config: dict[str, str]) -> None:
         args = ["launch", f"{self.remote}:{image}"
                 if ":" not in image else image, self.ref(name)]
@@ -375,20 +388,28 @@ def build_image(lxd: Lxd, series: str, arches: list[str],
             f" {', '.join(arches)}")
         lxd.sh(tmp, image_script(series, arches), timeout=3600)
         lxd.run("stop", lxd.ref(tmp))
-        old = lxd.image(alias)
-        if old is not None:
-            lxd.run("image", "alias", "delete", lxd.ref(alias))
+        # Publish under a staging alias, then move the real one: the
+        # host keeps its old image until the new one exists.
+        staging = f"{alias}-new"
+        if lxd.image(staging) is not None:
+            lxd.run("image", "alias", "delete", lxd.ref(staging))
         date = datetime.now(UTC).strftime("%Y-%m-%d")
         log(f"publishing {lxd.ref(alias)}")
-        lxd.run("publish", lxd.ref(tmp), "--alias", alias,
+        # The target remote is explicit: without it, lxc publishes to
+        # the local LXD, which may not be the builder host or reachable.
+        lxd.run("publish", lxd.ref(tmp), f"{lxd.remote}:",
+                "--alias", staging,
                 f"description=ftbfs builder {series} {date}",
                 timeout=3600)
-        if old is not None:
-            _delete_image(lxd, old)
     finally:
         lxd.delete(tmp)
-    fp = lxd.image(alias)
+    fp = lxd.image(staging)
     assert fp is not None
+    old = lxd.image(alias)
+    lxd.set_alias(alias, fp)
+    lxd.run("image", "alias", "delete", lxd.ref(staging))
+    if old not in (None, fp):
+        _delete_image(lxd, old)
     return fp
 
 
@@ -400,12 +421,13 @@ def copy_image(src: Lxd, dst: Lxd, alias: str = IMAGE_ALIAS) -> str:
     old = dst.image(alias)
     if old == fp:
         return fp
-    if old is not None:
-        dst.run("image", "alias", "delete", dst.ref(alias))
-    # Push: the source host sends it, so it need not listen on the
-    # network (this machine's LXD usually does not).
-    src.run("image", "copy", "--mode=push", src.ref(alias),
-            f"{dst.remote}:", "--alias", alias, timeout=3600)
+    if not dst.has_image(fp):
+        # Push: the source host sends it, so it need not listen on the
+        # network (this machine's LXD usually does not).
+        src.run("image", "copy", "--mode=push", src.ref(alias),
+                f"{dst.remote}:", timeout=3600)
+    # The alias moves only once the image is there.
+    dst.set_alias(alias, fp)
     if old is not None:
         _delete_image(dst, old)
     return fp
