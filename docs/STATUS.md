@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-10-03.
+Last updated: 2026-10-08.
 
 ftbfs runs end to end on the Ubuntu development series: ingest,
 excerpts, classification, Debian facts, triage and diagnosis on every
@@ -25,9 +25,12 @@ per package, reviewed on the web UI. Measured results are in
 | 10 | Build hosts: a pool of LXD workers | ffc1581 |
 | 11 | Publication: site config split, GPLv3, review, CI, docs | fe7e456 and later |
 | 12 | Web login with Launchpad, roles, public reading without costs | 2b3590a |
+| 13 | Server deployment: systemd units, relocate, LXD snapshots | 37cd509 to 674571f |
 
 The first full run to diagnose was run 22 (2026-09-27). Batches of dev
-and verify followed (runs 27 to 31, up to 2026-09-30).
+and verify followed (runs 27 to 31, up to 2026-09-30). The service
+moved to a server on 2026-10-05 (`DEPLOYMENT.md`) and has run daily
+since run 36 (2026-10-06).
 
 ## Roadmap
 
