@@ -100,12 +100,16 @@ class Lxd:
     def set_alias(self, alias: str, fp: str) -> None:
         """Point `alias` at image `fp`, in one step when it exists: a
         failure leaves it on the old image, never on nothing."""
-        if self.image(alias) is None:
+        path = f"/1.0/images/aliases/{alias}"
+        found = self.query(path)
+        if found is None:
             self.run("image", "alias", "create", self.ref(alias), fp)
             return
-        self.run("query", "-X", "PATCH", "--data",
-                 json.dumps({"target": fp}),
-                 f"{self.remote}:/1.0/images/aliases/{alias}")
+        # PUT, not PATCH: LXD 5.0 never answers a PATCH on an alias.
+        self.run("query", "-X", "PUT", "--data",
+                 json.dumps({"target": fp,
+                             "description": found.get("description", "")}),
+                 f"{self.remote}:{path}")
 
     def launch(self, image: str, name: str, config: dict[str, str]) -> None:
         args = ["launch", f"{self.remote}:{image}"

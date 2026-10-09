@@ -299,10 +299,14 @@ class ImageHost(Lxd):
                 if fp in self.images:
                     return json.dumps({"fingerprint": fp})
                 raise LxdError("Error: Not Found")
-            case ("query", "-X", "PATCH", "--data", data, ref):
+            case ("query", "-X", "PATCH", *_):
+                # LXD 5.0 never answers it; lxc gives up after 20s.
+                raise LxdError("Error: context deadline exceeded")
+            case ("query", "-X", "PUT", "--data", data, ref):
                 alias = self._mine(ref).removeprefix(
                     "/1.0/images/aliases/")
                 assert alias in self.aliases
+                assert set(json.loads(data)) == {"target", "description"}
                 self.aliases[alias] = json.loads(data)["target"]
             case ("stop", ref):
                 self._mine(ref)
