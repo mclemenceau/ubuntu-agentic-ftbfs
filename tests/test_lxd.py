@@ -252,6 +252,7 @@ def test_image_script():
     assert script.count("mmdebstrap --mode=unshare") == 2
     assert f"{HOME}/.cache/sbuild/stonking-proposed-i386.tar" in script
     assert "stonking-proposed main universe" in script
+    assert "$unshare_mmdebstrap_max_age = -1;" in script
 
 
 class ImageHost(Lxd):

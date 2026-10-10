@@ -501,7 +501,11 @@ time. That needs `sbuild`, `mmdebstrap` and `uidmap`, unshare mode
 chroot tarball `~/.cache/sbuild/<series>-proposed-amd64.tar` (README,
 "Quick start", has the command). sbuild upgrades the chroot at the
 start of every build, so the tarball only needs remaking when the
-series changes. Package code runs in sbuild's chroot as your user, so
+series changes, provided sbuild keeps it: by default it discards a
+tarball older than 7 days and bootstraps a chroot from the network for
+every build ("Existing chroot tarball is too old" in the log), so set
+`$unshare_mmdebstrap_max_age = -1;` too. Package code runs in sbuild's
+chroot as your user, so
 prefer LXD builders on a machine that holds anything of value
 (`SECURITY.md`, "Builds").
 
@@ -532,8 +536,13 @@ parallel = 4
   image at their next build.
 - Rebuild the image when the series changes, or when "reproduced"
   rates suddenly drop or builds fail in chroot setup (a stale or broken
-  chroot). sbuild upgrades the chroot at the start of every build, so
-  an image a few weeks old is fine otherwise.
+  chroot). sbuild upgrades the chroot at the start of every build, and
+  the image tells it to keep the tarball whatever its age
+  (`$unshare_mmdebstrap_max_age = -1`), so an image a few weeks old is
+  fine otherwise. Images built before October 2026 lack that setting:
+  after 7 days their builds bootstrap a chroot from the network each
+  time and fail when a mirror does. Rebuild one whose build logs say
+  "Existing chroot tarball is too old".
 - `ftbfs builders` shows each host: reachable, image, and each worker.
 - The image sets sbuild's AppArmor profile to complain mode: enforced,
   it blocks apt's network access in the unshare chroot inside a

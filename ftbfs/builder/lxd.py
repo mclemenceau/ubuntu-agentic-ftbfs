@@ -337,6 +337,10 @@ SBUILD_CONFIG = """\
 # Written by ftbfs (builder image). Unshare mode: every build unpacks a
 # fresh chroot from ~/.cache/sbuild/<dist>-<arch>.tar.
 $chroot_mode = 'unshare';
+# Never remake the tarball: by default sbuild discards one older than 7
+# days and bootstraps a chroot from the network for every build. sbuild
+# upgrades the chroot at the start of each build anyway.
+$unshare_mmdebstrap_max_age = -1;
 $run_lintian = 0;
 $clean_source = 0;
 1;

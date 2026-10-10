@@ -141,10 +141,13 @@ uv run ftbfs status                  # what it cost
 ```
 
 To reproduce failures and have fixes written, set up sbuild once:
-unshare mode in `~/.config/sbuild/config.pl`,
+unshare mode in `~/.config/sbuild/config.pl`, keeping the tarball
+however old it is (sbuild otherwise remakes it from the network for
+every build after 7 days),
 
 ```perl
 $chroot_mode = 'unshare';
+$unshare_mmdebstrap_max_age = -1;
 ```
 
 and a chroot tarball for the development series with `-proposed`
