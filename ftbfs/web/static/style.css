@@ -72,7 +72,9 @@ pre { max-width: none; }
 /* Package names and versions wrap rather than overflow or get cut. */
 td, th { overflow-wrap: anywhere; text-overflow: clip;
   padding-top: .25rem; padding-bottom: .25rem; }
-thead th { padding-bottom: .5rem; }
+/* Column labels never split: an empty column (no buttons for a viewer)
+   would otherwise shrink until its label breaks mid-word. */
+thead th { padding-bottom: .5rem; overflow-wrap: normal; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 table.small td, table.small th, .events td { font-size: .875rem;
   line-height: 1.25rem; }
