@@ -9,7 +9,7 @@
 {% for stage, gates in grouped.items() %}
 <h2>{{ stage }} <span class="muted">({{ gates|length }})</span></h2>
 <table>
-<tr><th>Unit</th><th>Context</th><th>Waiting since</th><th>Decision</th></tr>
+<thead><tr><th>Unit</th><th>Context</th><th>Waiting since</th><th>Decision</th></tr></thead>
 {% for g in gates %}
 <tr>
   <td class="mono">{{ unit_link(g.unit_id, stage) }}</td>
@@ -20,8 +20,8 @@
   </td>
   <td class="mono small">{{ g.ts }}</td>
   <td>{% if user.can('reviewer') %}<span class="actions">
-    <button class="approve" hx-post="/gates/decide" hx-vals='{{ {"stage": stage, "unit": g.unit_id, "decision": "approved"}|tojson }}' hx-target="closest span">approve</button>
-    <button class="reject" hx-post="/gates/decide" hx-vals='{{ {"stage": stage, "unit": g.unit_id, "decision": "rejected"}|tojson }}' hx-target="closest span">reject</button>
+    <button class="p-button--positive is-small is-dense" hx-post="/gates/decide" hx-vals='{{ {"stage": stage, "unit": g.unit_id, "decision": "approved"}|tojson }}' hx-target="closest span">approve</button>
+    <button class="p-button--negative is-small is-dense" hx-post="/gates/decide" hx-vals='{{ {"stage": stage, "unit": g.unit_id, "decision": "rejected"}|tojson }}' hx-target="closest span">reject</button>
   </span>{% endif %}</td>
 </tr>
 {% endfor %}
@@ -31,9 +31,9 @@
 {% endfor %}
 <h2>Recent decisions</h2>
 <table class="small">
-<tr><th>Stage</th><th>Unit</th><th>Decision</th><th>By</th><th>Note</th><th>When</th></tr>
+<thead><tr><th>Stage</th><th>Unit</th><th>Decision</th><th>By</th><th>Note</th><th>When</th></tr></thead>
 {% for g in recent %}
-<tr><td>{{ g.stage }}</td><td class="mono">{{ unit_link(g.unit_id, g.stage) }}</td><td><span class="badge {{ 'ok' if g.decision == 'approved' else 'fail' }}">{{ g.decision }}</span></td><td>{{ g.by or '-' }}</td><td>{{ g.note or '' }}</td><td class="mono">{{ g.ts }}</td></tr>
+<tr><td>{{ g.stage }}</td><td class="mono">{{ unit_link(g.unit_id, g.stage) }}</td><td>{{ chip(g.decision) }}</td><td>{{ g.by or '-' }}</td><td>{{ g.note or '' }}</td><td class="mono">{{ g.ts }}</td></tr>
 {% endfor %}
 </table>
 {% endblock %}

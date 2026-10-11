@@ -21,7 +21,6 @@ import asyncio
 import gzip
 import json
 from collections import defaultdict
-from html import escape
 from importlib import metadata
 from pathlib import Path
 from typing import Annotated
@@ -99,6 +98,32 @@ def ago(seconds: int | None) -> str:
 
 def money(v) -> str:
     return f"${v:.3f}" if v else "-"
+
+
+# Vanilla chip tone per status word: stage results, runs, gate decisions
+# and dispositions. Anything else gets the neutral chip.
+TONES = {
+    "ok": "positive", "done": "positive", "approved": "positive",
+    "accepted": "positive", "uploaded": "positive",
+    "fail": "negative", "error": "negative", "failed": "negative",
+    "rejected": "negative",
+    "needs_human": "caution", "gate": "caution", "interrupted": "caution",
+    "pending": "information", "running": "information",
+    "new": "information",
+}
+
+
+def chip(text, tone: str | None = None) -> Markup:
+    """A read-only Vanilla chip; the tone defaults to the text's."""
+    tone = TONES.get(str(text)) if tone is None else tone
+    return Markup(
+        '<span class="p-chip{} is-dense is-inline is-readonly">'
+        '<span class="p-chip__value">{}</span></span>'
+    ).format(f"--{tone}" if tone else "", text)
+
+
+def warn(text) -> Markup:
+    return Markup('<span class="warn">{}</span>').format(text)
 
 
 def host_name(header: str) -> str:
@@ -181,6 +206,7 @@ def create_app(root: Path, launchpad: Launchpad | None = None) -> FastAPI:
     tpl.env.globals["auth"] = auth is not None
     tpl.env.globals["cost_files"] = COST_FILES
     tpl.env.globals["source_url"] = source_url()
+    tpl.env.globals["chip"] = chip
 
     def current_user(request: Request) -> User:
         if auth is None:
@@ -261,7 +287,7 @@ def create_app(root: Path, launchpad: Launchpad | None = None) -> FastAPI:
             run_id = core.start_run(until or None, ingest, user.by,
                                     daily_cap=daily_cap)
         except (ValueError, RuntimeError) as e:
-            return HTMLResponse(f"<span class=warn>{escape(str(e))}</span>")
+            return HTMLResponse(warn(e))
         return HTMLResponse("", headers={"HX-Redirect": f"/runs/{run_id}"})
 
     @web.post("/dispose", response_class=HTMLResponse)
@@ -274,9 +300,8 @@ def create_app(root: Path, launchpad: Launchpad | None = None) -> FastAPI:
         except ValueError as e:
             raise HTTPException(400, str(e)) from None
         if not status:
-            return HTMLResponse("<span class='badge'>cleared</span>")
-        return HTMLResponse(f"<span class='badge ok'>{escape(status)}"
-                            "</span>")
+            return HTMLResponse(chip("cleared"))
+        return HTMLResponse(chip(status, "positive"))
 
     # -- overview ---------------------------------------------------------
 
@@ -458,8 +483,8 @@ def create_app(root: Path, launchpad: Launchpad | None = None) -> FastAPI:
         try:
             pid = core.kill_agent(_attempt_dir(dir), user.by)
         except (LookupError, ValueError) as e:
-            return HTMLResponse(f"<span class=warn>{escape(str(e))}</span>")
-        return HTMLResponse(f"<span class=ok>killed pid {pid}</span>")
+            return HTMLResponse(warn(e))
+        return HTMLResponse(chip(f"killed pid {pid}", "positive"))
 
     # -- items and packages -----------------------------------------------
 
@@ -701,8 +726,7 @@ def create_app(root: Path, launchpad: Launchpad | None = None) -> FastAPI:
             core.approve(stage, [unit], decision, user.by, note or None)
         except ValueError as e:
             raise HTTPException(400, str(e)) from None
-        css = "ok" if decision == "approved" else "fail"
-        return HTMLResponse(f"<span class='badge {css}'>{decision}</span>")
+        return HTMLResponse(chip(decision))
 
     @web.post("/gates/bulk", response_class=HTMLResponse)
     def gate_bulk(user: Reviewer, stage: str = Form(...),
@@ -717,9 +741,8 @@ def create_app(root: Path, launchpad: Launchpad | None = None) -> FastAPI:
             done = core.approve(stage, ids, decision, user.by)
         except (ValueError, json.JSONDecodeError) as e:
             raise HTTPException(400, str(e)) from None
-        css = "ok" if decision == "approved" else "fail"
-        return HTMLResponse(f"<span class='badge {css}'>{decision}"
-                            f" {len(done)}</span>")
+        return HTMLResponse(chip(f"{decision} {len(done)}",
+                                 TONES.get(decision)))
 
     @web.post("/retry", response_class=HTMLResponse)
     def retry(user: Reviewer, stage: str = Form(...),
@@ -728,9 +751,8 @@ def create_app(root: Path, launchpad: Launchpad | None = None) -> FastAPI:
             core.retry(stage, [unit], user.by)
         except ValueError as e:
             raise HTTPException(400, str(e)) from None
-        return HTMLResponse("<span class='badge pending'>retry requested;"
-                            " runs on the next <code>ftbfs run</code>"
-                            "</span>")
+        return HTMLResponse(chip("retry requested; runs on the next"
+                                 " ftbfs run", "information"))
 
     @web.get("/attention", response_class=HTMLResponse)
     def attention(request: Request):

@@ -11,8 +11,10 @@ ROOT = Path(__file__).resolve().parent.parent
 NOTICE = ("Copyright (C) 2026 Matthieu Clemenceau",
           "SPDX-License-Identifier: GPL-3.0-or-later")
 # Run data, build output and test data. The vendored htmx files are .js,
-# which SOURCES leaves out: their notices are in THIRD_PARTY.md.
-SKIP_DIRS = {"state", "cache", "work", "build", "dist", "fixtures"}
+# which SOURCES leaves out, and Vanilla is built into static/vanilla:
+# their notices are in THIRD_PARTY.md.
+SKIP_DIRS = {"state", "cache", "work", "build", "dist", "fixtures",
+             "vanilla"}
 SOURCES = ("*.py", "*.html", "*.j2", "*.css", "prompts/*.md")
 
 

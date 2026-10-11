@@ -3,18 +3,18 @@
 {% from "_macros.html" import status, unit_link %}
 <div class="actions">
   {{ status(s.run.status) }}
-  {% if s.run.control %}<span class="badge gate">{{ s.run.control }} requested</span>{% endif %}
+  {% if s.run.control %}{{ chip(s.run.control ~ ' requested', 'caution') }}{% endif %}
   {% if user.costs %}<span>cost so far <b>{{ s.cost|money }}</b></span>{% endif %}
   {% if s.gates %}<a class="gate" href="/gates">{{ s.gates }} waiting at gates</a>{% endif %}
   {% if s.pending_polls %}<span class="pending">{{ s.pending_polls }} external builds pending</span>{% endif %}
   {% if s.run.status == 'running' and user.can('operator') %}
     {% for action in ('pause', 'resume', 'cancel') %}
-    <button class="{{ 'danger' if action == 'cancel' else '' }}" hx-post="/runs/{{ s.run.id }}/control" hx-vals='{{ {"action": action}|tojson }}' hx-target="#panel">{{ action }}</button>
+    <button class="p-button{{ '--negative' if action == 'cancel' }} is-small is-dense" hx-post="/runs/{{ s.run.id }}/control" hx-vals='{{ {"action": action}|tojson }}' hx-target="#panel">{{ action }}</button>
     {% endfor %}
   {% endif %}
 </div>
 <table style="margin-top:10px">
-<tr><th>Stage</th><th>Kind</th>{% for st in ('running', 'ok', 'fail', 'skip', 'needs_human', 'error', 'pending') %}<th class="num">{{ st }}</th>{% endfor %}</tr>
+<thead><tr><th>Stage</th><th>Kind</th>{% for st in ('running', 'ok', 'fail', 'skip', 'needs_human', 'error', 'pending') %}<th class="num">{{ st }}</th>{% endfor %}</tr></thead>
 {% for spec in pipeline %}
 {% set c = s.stages.get(spec.name, {}) %}
 <tr><td>{{ spec.name }}</td><td class="muted">{{ spec.stage.kind }}</td>{% for st in ('running', 'ok', 'fail', 'skip', 'needs_human', 'error', 'pending') %}<td class="num {{ st if c.get(st) else 'muted' }}">{{ c.get(st, '&middot;'|safe) }}</td>{% endfor %}</tr>
@@ -22,14 +22,14 @@
 </table>
 <h3>Agents in flight ({{ s.agents|length }})</h3>
 {% if s.agents %}
-<table><tr><th>Stage</th><th>Unit</th><th>Model</th><th>Elapsed</th><th></th></tr>
+<table><thead><tr><th>Stage</th><th>Unit</th><th>Model</th><th>Elapsed</th><th></th></tr></thead>
 {% for a in s.agents %}
 <tr><td>{{ a.stage }}</td><td class="mono">{{ unit_link(a.unit, a.stage) }}</td><td>{{ a.model }} ({{ a.tier }})</td><td>{{ a.elapsed_s|ago }}</td><td><a href="/console?dir={{ a.attempt_dir|urlq }}">console</a></td></tr>
 {% endfor %}</table>
 {% else %}<p class="muted small">none</p>{% endif %}
 <h3>Builds in flight ({{ s.builds|length }} of {{ slots }} slots)</h3>
 {% if s.builds %}
-<table><tr><th>Stage</th><th>Unit</th><th>Where</th><th>Elapsed</th></tr>
+<table><thead><tr><th>Stage</th><th>Unit</th><th>Where</th><th>Elapsed</th></tr></thead>
 {% for b in s.builds %}
 <tr><td>{{ b.stage }}</td><td class="mono">{{ unit_link(b.unit, b.stage) }}</td><td>{{ b.where }}</td><td>{{ b.elapsed_s|ago }}</td></tr>
 {% endfor %}</table>

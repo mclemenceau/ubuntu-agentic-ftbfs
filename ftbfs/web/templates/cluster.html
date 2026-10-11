@@ -12,7 +12,7 @@
 <h2>Members ({{ members|length }})</h2>
 <table class="small">
 {% for m in members %}
-<tr><td class="mono"><a href="/pkg/{{ m.source|urlq }}/{{ m.version|urlq }}">{{ m.source }}</a> {{ m.version }}</td><td>{{ m.arch }}</td><td>{% if m.lifecycle == 'gone' %}<span class="badge skip">gone</span>{% endif %}</td></tr>
+<tr><td class="mono"><a href="/pkg/{{ m.source|urlq }}/{{ m.version|urlq }}">{{ m.source }}</a> {{ m.version }}</td><td>{{ m.arch }}</td><td>{% if m.lifecycle == 'gone' %}{{ chip('gone') }}{% endif %}</td></tr>
 {% endfor %}
 </table>
 <h2>Timeline</h2>

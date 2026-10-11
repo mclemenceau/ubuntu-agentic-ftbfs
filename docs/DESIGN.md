@@ -281,9 +281,23 @@ lives in `ftbfs/web/queries.py`. Every control (approve, retry,
 dispose, start, pause, kill) goes through `App`, the same code as the
 CLI, and records an event.
 
+The look is Canonical's Vanilla Framework: `ftbfs/web/vanilla.scss`
+picks the patterns the pages use (navigation, buttons, chips, cards,
+notifications, forms, tables) and `make vanilla` compiles it, with the
+Ubuntu fonts, into `ftbfs/web/static/vanilla/`, committed like htmx.
+Templates use Vanilla's classes; `static/style.css` holds only what
+Vanilla has no pattern for (pipeline graph, status dots, console) and
+takes its colours from Vanilla's theme tokens. Status words become
+chips through one helper, `chip()` in `web/app.py`, shared by the
+templates and the htmx fragments. Dark mode follows the system.
+
 **Why.** The pages are tables and logs; a server-rendered page is the
 simplest thing that does that, and one language is easier to maintain
-than two. Controls shared with the CLI cannot drift from it.
+than two. Controls shared with the CLI cannot drift from it. Vanilla
+makes the tool look like the rest of Ubuntu's; compiling it ahead
+keeps Sass and npm out of the runtime and out of `make check`, and
+serving the fonts locally keeps the Content-Security-Policy at
+"nothing loaded from elsewhere".
 
 **Rejected.** A single-page app with a JSON API: a build toolchain and
 a second codebase for no capability the pages need.

@@ -7,9 +7,9 @@
 <h1>Agent console</h1>
 <p class="mono small">{{ rel }}</p>
 <div class="actions">
-  <span id="state" class="badge {{ 'running' if alive else 'skip' }}">{{ 'running' if alive else 'finished' }}</span>
+  <span class="p-chip is-dense is-inline is-readonly"><span id="state" class="p-chip__value">{{ 'running' if alive else 'finished' }}</span></span>
   {% if alive and user.can('operator') %}
-  <button class="danger" hx-post="/console/kill" hx-vals='{{ {"dir": dir|string}|tojson }}' hx-target="#killed">kill agent</button><span id="killed"></span>
+  <button class="p-button--negative is-small is-dense" hx-post="/console/kill" hx-vals='{{ {"dir": dir|string}|tojson }}' hx-target="#killed">kill agent</button><span id="killed"></span>
   {% endif %}
   {% for f in files if user.costs or f not in cost_files %}{{ file_link(dir ~ '/' ~ f, f) }} {% endfor %}
 </div>

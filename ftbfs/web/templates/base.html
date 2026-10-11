@@ -6,32 +6,51 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}ftbfs{% endblock %} - ftbfs</title>
+<link rel="stylesheet" href="/static/vanilla/vanilla.css">
 <link rel="stylesheet" href="/static/style.css">
 <script src="/static/htmx.min.js"></script>
 <script src="/static/htmx-ext-sse.js"></script>
 </head>
 <body>
-<header>
-  <a class="brand" href="/">ftbfs</a>
-  <nav>
-    <a href="/">Next steps</a>
-    <a href="/overview">Pipeline</a>
-    {% if running %}<a class="live" href="/runs/{{ running.id }}">&#9679; Run #{{ running.id }}</a>
-    {% else %}<a href="/runs">Runs</a>{% endif %}
-    <a href="/gates">Gates{% if nav_gates %}<span class="count">{{ nav_gates }}</span>{% endif %}</a>
-    <a href="/attention">Attention{% if nav_attention %}<span class="count bad">{{ nav_attention }}</span>{% endif %}</a>
-    <a href="/items">Items</a>
-    <a href="/clusters">Clusters</a>
-    <a href="/signals">Signals</a>
-    {% if user.costs %}<a href="/costs">Costs</a>{% endif %}
-    <a href="/snapshots">Snapshots</a>
-  </nav>
-  {% if auth %}<span class="account">
-    {% if user.name %}<span title="your role">{{ user.name }} &middot; {{ user.role }}</span>
-    <button class="link" hx-post="/logout">log out</button>
-    {% else %}{% set here = request.url.path ~ ('?' ~ request.url.query if request.url.query else '') %}
-    <a rel="nofollow" href="/login?next={{ here|urlq }}">log in with Launchpad</a>{% endif %}
-  </span>{% endif %}
+{% macro nav(href, label, live=false) -%}
+<li class="p-navigation__item{% if request.url.path == href or (href != '/' and request.url.path.startswith(href ~ '/')) %} is-selected{% endif %}"><a class="p-navigation__link{% if live %} live{% endif %}" href="{{ href }}">{{ label }}{{ caller() if caller }}</a></li>
+{%- endmacro %}
+<header id="navigation" class="p-navigation is-dark is-sticky">
+  <div class="p-navigation__row--full-width">
+    <div class="p-navigation__banner">
+      <div class="p-navigation__tagged-logo">
+        <a class="p-navigation__link" href="/">
+          <div class="p-navigation__logo-tag"></div>
+          <span class="p-navigation__logo-title">ftbfs</span>
+        </a>
+      </div>
+      <ul class="p-navigation__items">
+        <li class="p-navigation__item"><a href="#navigation" class="p-navigation__toggle--open" title="menu">Menu</a></li>
+        <li class="p-navigation__item"><a href="#navigation-closed" class="p-navigation__toggle--close" title="close menu">Close menu</a></li>
+      </ul>
+    </div>
+    <nav class="p-navigation__nav" aria-label="Main">
+      <ul class="p-navigation__items">
+        {{ nav('/', 'Next steps') }}
+        {{ nav('/overview', 'Pipeline') }}
+        {% if running %}{{ nav('/runs/' ~ running.id, '&#9679; Run #'|safe ~ running.id, live=true) }}
+        {% else %}{{ nav('/runs', 'Runs') }}{% endif %}
+        {% call nav('/gates', 'Gates') %}{% if nav_gates %} <span class="p-badge">{{ nav_gates }}</span>{% endif %}{% endcall %}
+        {% call nav('/attention', 'Attention') %}{% if nav_attention %} <span class="p-badge--negative">{{ nav_attention }}</span>{% endif %}{% endcall %}
+        {{ nav('/items', 'Items') }}
+        {{ nav('/clusters', 'Clusters') }}
+        {{ nav('/signals', 'Signals') }}
+        {% if user.costs %}{{ nav('/costs', 'Costs') }}{% endif %}
+        {{ nav('/snapshots', 'Snapshots') }}
+      </ul>
+      {% if auth %}<ul class="p-navigation__items account">
+        {% if user.name %}<li class="p-navigation__item"><span class="p-navigation__link account" title="your role">{{ user.name }} &middot; {{ user.role }}</span></li>
+        <li class="p-navigation__item"><button class="p-navigation__link" hx-post="/logout">Log out</button></li>
+        {% else %}{% set here = request.url.path ~ ('?' ~ request.url.query if request.url.query else '') %}
+        <li class="p-navigation__item"><a class="p-navigation__link" rel="nofollow" href="/login?next={{ here|urlq }}">Log in with Launchpad</a></li>{% endif %}
+      </ul>{% endif %}
+    </nav>
+  </div>
 </header>
 <main>
 {% block main %}{% endblock %}

@@ -11,7 +11,7 @@
   </label>
   <label><span><input type="checkbox" name="ingest" value="true"> fetch a fresh snapshot first</span></label>
   {% if running %}<a href="/runs/{{ running.id }}">run #{{ running.id }} is in progress</a>
-  {% else %}<button class="approve">start run</button>{% endif %}
+  {% else %}<button class="p-button--positive is-small is-dense">start run</button>{% endif %}
   <span id="run-msg"></span>
 </form>
 {% else %}<form class="filters"><label>Up to stage
@@ -23,7 +23,7 @@
   <span class="muted small">operators start runs</span></form>{% endif %}
 {% set total = preview|sum(attribute='cost') %}
 <table class="small">
-<tr><th>Stage</th><th class="num">Would run now</th>{% if user.costs %}<th class="num">Est. cost</th>{% endif %}<th class="num">Waiting at gate</th><th class="num">Blocked upstream</th><th>Units</th></tr>
+<thead><tr><th>Stage</th><th class="num">Would run now</th>{% if user.costs %}<th class="num">Est. cost</th>{% endif %}<th class="num">Waiting at gate</th><th class="num">Blocked upstream</th><th>Units</th></tr></thead>
 {% for p in preview %}
 <tr{% if p.ready %} class="selected"{% endif %}>
   <td>{{ p.stage }} <span class="muted">per {{ p.unit }}</span></td>

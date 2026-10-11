@@ -288,6 +288,11 @@ def test_session_cookie_flags(project):
 
 def test_logout(project):
     c = client(project, "rita")
+    # The account list the stylesheet keeps on one row, top right.
+    header = c.get("/").text.split("</header>")[0]
+    assert '<ul class="p-navigation__items account">' in header
+    assert "rita &middot; reviewer" in header
+    assert 'hx-post="/logout"' in header
     assert c.post("/logout", headers=HX).headers["hx-redirect"] == "/"
     assert not c.cookies.get(SESSION_COOKIE)
     assert c.post("/retry", headers=HX, data={"stage": "nope",
@@ -342,7 +347,7 @@ def test_buttons_follow_the_role(project):
     for url in pages:
         body = anon.get(url).text
         assert "hx-post=\"/gates" not in body and "/dispose" not in body
-        assert "log in with Launchpad" in body
+        assert "Log in with Launchpad" in body
     assert 'href="/costs"' not in anon.get("/").text
     rita = client(project, "rita")
     gates = rita.get("/gates").text

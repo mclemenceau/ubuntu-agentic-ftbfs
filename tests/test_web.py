@@ -19,7 +19,7 @@ from ftbfs.ingest import parse, read_html
 from ftbfs.inventory import save_snapshot, store
 from ftbfs.web import queries as q
 from ftbfs.web import transcript
-from ftbfs.web.app import create_app, host_name
+from ftbfs.web.app import chip, create_app, host_name
 
 ROOT = Path(__file__).parent.parent
 FIXTURE = Path(__file__).parent / "fixtures" / "ftbfs-2026-09-27.html.gz"
@@ -301,6 +301,16 @@ def test_host_name():
     assert host_name("Example.ORG") == "example.org"
 
 
+def test_chip_tone_and_escaping():
+    # Status words pick a Vanilla chip tone; anything else is neutral,
+    # and the text is escaped (it can come from a form field).
+    assert 'class="p-chip--positive ' in chip("ok")
+    assert 'class="p-chip--negative ' in chip("rejected")
+    assert 'class="p-chip is-dense' in chip("gone")
+    assert 'class="p-chip--caution ' in chip("gone", "caution")
+    assert "<b>" not in chip("<b>") and "&lt;b&gt;" in chip("<b>")
+
+
 def test_snapshot_diff_new_gone_regressed(project, tmp_path):
     app = project["app"]
     snap1 = app.db.one("SELECT * FROM snapshot ORDER BY id LIMIT 1")
@@ -403,7 +413,7 @@ def test_gone_items_leave_gates_and_inbox(tmp_path, capsys):
     page = TestClient(create_app(tmp_path), base_url=BASE).get(
         "/gates").text
     assert kept["id"] in page and gone["id"] not in page
-    assert '<a href="/gates">Gates<span class="count">1</span>' in page
+    assert 'href="/gates">Gates <span class="p-badge">1</span>' in page
 
     cmd_status(app, None)
     assert re.search(r"waiting for approval:\n\s+dev\s+1\n",

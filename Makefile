@@ -11,9 +11,16 @@ PORT ?= 8047
 #   make test ARGS='-k web -x'
 #   make run ARGS='--source xfaces --until diagnose'
 ARGS ?=
+# Vendored Vanilla Framework (see THIRD_PARTY.md) and the Sass compiler
+# that builds it. `make vanilla` needs npm and the network.
+VANILLA ?= 4.59.0
+SASS ?= 1.93.2
+VANILLA_OUT := ftbfs/web/static/vanilla
+FONTS_URL := https://assets.ubuntu.com/v1/
 
 .DEFAULT_GOAL := help
-.PHONY: help sync lint test check serve ingest run status report clean
+.PHONY: help sync lint test check serve ingest run status report clean \
+	vanilla
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / \
@@ -49,3 +56,22 @@ clean: ## Remove Python and tool caches (keeps state/, cache/, work/)
 	rm -rf .pytest_cache .ruff_cache
 	find . -path ./.venv -prune -o -name __pycache__ -type d \
 		-exec rm -rf {} +
+
+vanilla: ## Rebuild the vendored Vanilla CSS and Ubuntu fonts (npm)
+	set -eu; tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+	npm pack --silent --pack-destination "$$tmp" \
+		vanilla-framework@$(VANILLA) >/dev/null; \
+	mkdir "$$tmp/lib"; tar xzf "$$tmp"/vanilla-framework-*.tgz -C "$$tmp"; \
+	mv "$$tmp/package" "$$tmp/lib/vanilla-framework"; \
+	rm -rf $(VANILLA_OUT); mkdir -p $(VANILLA_OUT)/fonts; \
+	cp "$$tmp/lib/vanilla-framework/LICENSE" $(VANILLA_OUT)/LICENSE; \
+	npx --yes sass@$(SASS) --no-source-map --style=compressed \
+		--quiet-deps --silence-deprecation=import,global-builtin \
+		--load-path="$$tmp/lib" ftbfs/web/vanilla.scss \
+		$(VANILLA_OUT)/vanilla.css; \
+	grep -o '/static/vanilla/fonts/[^")]*' $(VANILLA_OUT)/vanilla.css \
+	| sort -u | while read -r url; do \
+		name=$${url##*/}; \
+		file=$$(printf '%s' "$$name" | sed 's/%5B/[/g; s/%5D/]/g'); \
+		curl -sSfL -o "$(VANILLA_OUT)/fonts/$$file" "$(FONTS_URL)$$name"; \
+	done

@@ -22,6 +22,11 @@ sbuild and no LXD: the `fake` agent backend and fake `sbuild` and
 `make help` lists the other shortcuts (`make serve`, `make run
 ARGS='--source xfaces'`, ...).
 
+The web UI uses Vanilla Framework classes. After changing
+`ftbfs/web/vanilla.scss` or the pinned `VANILLA` version, run `make
+vanilla` (needs npm and the network) and commit the rebuilt
+`ftbfs/web/static/vanilla/`; never edit those files by hand.
+
 ## Conventions
 
 - `ruff check .` and every test pass on every commit. A failure or a

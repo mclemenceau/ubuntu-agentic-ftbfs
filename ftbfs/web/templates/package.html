@@ -12,8 +12,8 @@
   &middot; <a href="/items?source={{ inv.source|urlq }}&everything=1">items</a>
 </div>
 <div class="disposition small"><b>Your decision:</b>
-  <span>{% if disposition %}<span class="badge ok">{{ disposition.status }}</span> <span class="muted">{{ dispositions[disposition.status] }}, {{ disposition.ts }}</span>
-  {% if user.can('reviewer') %}<button hx-post="/dispose" hx-vals='{{ {"source": inv.source, "version": inv.version, "status": ""}|tojson }}' hx-target="closest span">clear</button>{% endif %}
+  <span>{% if disposition %}{{ chip(disposition.status, 'positive') }} <span class="muted">{{ dispositions[disposition.status] }}, {{ disposition.ts }}</span>
+  {% if user.can('reviewer') %}<button class="p-button is-small is-dense" hx-post="/dispose" hx-vals='{{ {"source": inv.source, "version": inv.version, "status": ""}|tojson }}' hx-target="closest span">clear</button>{% endif %}
   {% else %}<span class="muted">none yet</span>{% endif %}</span>
   {{ dispose(inv.source, inv.version, dispositions.keys()) }}
 </div>
@@ -25,9 +25,9 @@
 <div>
   <h2>Per architecture</h2>
   <table>
-  <tr><th>Arch</th><th>Pipeline</th></tr>
+  <thead><tr><th>Arch</th><th>Pipeline</th></tr></thead>
   {% for i in inv.items %}
-  <tr><td>{{ i.arch }}</td><td>{% for s in stages %}{{ dot(matrix[i.id].get(s), s) }} {% endfor %}</td></tr>
+  <tr><td>{{ i.arch }}</td><td class="dots">{% for s in stages %}{{ dot(matrix[i.id].get(s), s) }} {% endfor %}</td></tr>
   {% endfor %}
   </table>
 
@@ -41,10 +41,10 @@
   <tr><td>{{ stage }}</td><td>{{ reason }}</td><td>
     {% if reason == 'waiting for manual approval' %}
     {% set uid = iid if unit_types[stage] == 'item' else (inv.source if unit_types[stage] == 'package' else none) %}
-    {% if uid and user.can('reviewer') %}<span><button class="approve" hx-post="/gates/decide" hx-vals='{{ {"stage": stage, "unit": uid, "decision": "approved"}|tojson }}' hx-target="closest span">approve</button>
-    <button class="reject" hx-post="/gates/decide" hx-vals='{{ {"stage": stage, "unit": uid, "decision": "rejected"}|tojson }}' hx-target="closest span">reject</button></span>{% endif %}
+    {% if uid and user.can('reviewer') %}<span><button class="p-button--positive is-small is-dense" hx-post="/gates/decide" hx-vals='{{ {"stage": stage, "unit": uid, "decision": "approved"}|tojson }}' hx-target="closest span">approve</button>
+    <button class="p-button--negative is-small is-dense" hx-post="/gates/decide" hx-vals='{{ {"stage": stage, "unit": uid, "decision": "rejected"}|tojson }}' hx-target="closest span">reject</button></span>{% endif %}
     {% elif unit_types[stage] == 'item' and (reason.startswith('cached') or reason.startswith('gave up')) and user.can('reviewer') %}
-    <span><button hx-post="/retry" hx-vals='{{ {"stage": stage, "unit": iid}|tojson }}' hx-target="closest span">retry</button></span>
+    <span><button class="p-button is-small is-dense" hx-post="/retry" hx-vals='{{ {"stage": stage, "unit": iid}|tojson }}' hx-target="closest span">retry</button></span>
     {% endif %}
   </td></tr>
   {% endfor %}

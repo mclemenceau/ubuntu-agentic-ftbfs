@@ -1,0 +1,37 @@
+// Copyright (C) 2026 Matthieu Clemenceau
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// The subset of Canonical's Vanilla Framework the web UI uses, compiled
+// once into static/vanilla/vanilla.css by `make vanilla` (no build at
+// run time). The fonts are served from here, not assets.ubuntu.com:
+// the Content-Security-Policy loads nothing from elsewhere.
+
+$assets-path: '/static/vanilla/fonts/';
+// The pages are dense tables of package names and versions: keep the
+// base size, and let cells wrap rather than cut them with an ellipsis.
+$increase-font-size-on-larger-screens: false;
+$table-layout-fixed: false;
+
+@import 'vanilla-framework/scss/vanilla';
+
+@include vf-base;
+@include vf-p-badge;
+@include vf-p-buttons;
+@include vf-p-card;
+@include vf-p-chip;
+@include vf-p-forms;
+@include vf-p-headings;
+@include vf-p-lists;
+@include vf-p-muted-heading;
+@include vf-p-navigation;
+@include vf-p-notification;
+@include vf-u-text-figures;
+@include vf-u-text-muted;
+@include vf-u-truncate;
+
+// Follow the system's dark mode, as the UI did before Vanilla.
+@media (prefers-color-scheme: dark) {
+  :root {
+    @include vf-theme-dark;
+  }
+}
