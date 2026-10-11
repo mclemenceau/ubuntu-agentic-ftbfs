@@ -145,6 +145,26 @@ def test_pages_render(client, project):
     assert src in items
 
 
+def test_gates_attention_menu_is_optional(client, project):
+    def menu(body):
+        return body[body.index('aria-label="Main"'):body.index("</nav>")]
+
+    root = project["root"]
+    body = client.get("/").text
+    assert "FTBFS Triage" in body
+    plain = menu(body)
+    assert ">Packages<" in plain
+    assert 'href="/gates"' not in plain and 'href="/attention"' not in plain
+    local = root / "config.local.toml"
+    local.write_text("[web]\nnav_gates_attention = true\n")
+    try:
+        shown = menu(TestClient(create_app(root), base_url=BASE)
+                     .get("/").text)
+    finally:
+        local.unlink()
+    assert 'href="/gates"' in shown and 'href="/attention"' in shown
+
+
 def test_signals_visible(client, project):
     src = project["src"]
     page = client.get("/signals?signal=sync-candidate&everything=1").text
@@ -410,6 +430,8 @@ def test_gone_items_leave_gates_and_inbox(tmp_path, capsys):
     human = nextsteps.build(app, app.config.make_filter())["human"]
     assert {h["unit"] for h in human} == {kept["id"]}
 
+    (tmp_path / "config.local.toml").write_text(
+        "[web]\nnav_gates_attention = true\n")
     page = TestClient(create_app(tmp_path), base_url=BASE).get(
         "/gates").text
     assert kept["id"] in page and gone["id"] not in page

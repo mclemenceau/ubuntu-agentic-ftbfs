@@ -185,6 +185,9 @@ def create_app(root: Path, launchpad: Launchpad | None = None) -> FastAPI:
                                   not isinstance(daily_cap, int | float)):
         raise ValueError("[web] daily_cost_cap must be a number (USD)")
     max_streams = int(web_cfg.get("max_streams", 64))
+    nav_gates_attention = web_cfg.get("nav_gates_attention", False)
+    if not isinstance(nav_gates_attention, bool):
+        raise ValueError("[web] nav_gates_attention must be true or false")
     streams = {"open": 0}
     allowed = {host_name(h) for h in core.config.allowed_hosts}
     work = core.config.work_dir.resolve()
@@ -241,10 +244,13 @@ def create_app(root: Path, launchpad: Launchpad | None = None) -> FastAPI:
         return response
 
     def page(request: Request, name: str, **ctx) -> HTMLResponse:
+        nav = {"nav_gates_attention": nav_gates_attention}
+        if nav_gates_attention:
+            nav["nav_gates"] = core.db.one(
+                f"SELECT COUNT(*) AS n FROM ({PENDING_GATES})")["n"]
+            nav["nav_attention"] = len(q.attention(core.db)["problems"])
         return tpl.TemplateResponse(request, name, {
-            "nav_gates": core.db.one("SELECT COUNT(*) AS n FROM"
-                                     f" ({PENDING_GATES})")["n"],
-            "nav_attention": len(q.attention(core.db)["problems"]),
+            **nav,
             "running": core.db.one("SELECT id FROM run WHERE"
                                    " status='running' ORDER BY id DESC"
                                    " LIMIT 1"),

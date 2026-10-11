@@ -76,3 +76,6 @@ allowed_hosts = ["127.0.0.1", "localhost", "::1"]
 daily_cost_cap = 10.0
 # Live streams (events, agent consoles) open at once, over all viewers.
 max_streams = 64
+# Show Gates and Attention in the top menu. Their pages stay reachable
+# by URL, and Next steps lists what they hold.
+nav_gates_attention = false

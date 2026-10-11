@@ -5,7 +5,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}ftbfs{% endblock %} - ftbfs</title>
+<title>{% block title %}ftbfs{% endblock %} - FTBFS Triage</title>
 <link rel="stylesheet" href="/static/vanilla/vanilla.css">
 <link rel="stylesheet" href="/static/style.css">
 <script src="/static/htmx.min.js"></script>
@@ -21,7 +21,7 @@
       <div class="p-navigation__tagged-logo">
         <a class="p-navigation__link" href="/">
           <div class="p-navigation__logo-tag"></div>
-          <span class="p-navigation__logo-title">ftbfs</span>
+          <span class="p-navigation__logo-title">FTBFS Triage</span>
         </a>
       </div>
       <ul class="p-navigation__items">
@@ -35,9 +35,11 @@
         {{ nav('/overview', 'Pipeline') }}
         {% if running %}{{ nav('/runs/' ~ running.id, '&#9679; Run #'|safe ~ running.id, live=true) }}
         {% else %}{{ nav('/runs', 'Runs') }}{% endif %}
+        {% if nav_gates_attention %}
         {% call nav('/gates', 'Gates') %}{% if nav_gates %} <span class="p-badge">{{ nav_gates }}</span>{% endif %}{% endcall %}
         {% call nav('/attention', 'Attention') %}{% if nav_attention %} <span class="p-badge--negative">{{ nav_attention }}</span>{% endif %}{% endcall %}
-        {{ nav('/items', 'Items') }}
+        {% endif %}
+        {{ nav('/items', 'Packages') }}
         {{ nav('/clusters', 'Clusters') }}
         {{ nav('/signals', 'Signals') }}
         {% if user.costs %}{{ nav('/costs', 'Costs') }}{% endif %}

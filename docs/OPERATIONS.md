@@ -115,8 +115,9 @@ through the same code as the CLI and are recorded as events. Pages:
 - **Package**: the investigation report, pipeline dots per arch, `why`
   per stage with approve and retry, every attempt's artifacts (prompt,
   transcript, debdiff, build log) and the timeline
-- **Gates** and **Attention** (errors, needs-human, exhausted loops)
-- **Items**, **Clusters**, **Signals**, **Costs** (by stage, model, run
+- **Gates** and **Attention** (errors, needs-human, exhausted loops),
+  in the menu only with `[web] nav_gates_attention = true`
+- **Packages** (`/items`), **Clusters**, **Signals**, **Costs** (by stage, model, run
   and package) and **Snapshots** (new, regressed, gone between any two)
 
 ### Web access

@@ -2,9 +2,9 @@
 {#- SPDX-License-Identifier: GPL-3.0-or-later -#}
 {% extends "base.html" %}
 {% from "_macros.html" import dot, signal %}
-{% block title %}Items{% endblock %}
+{% block title %}Packages{% endblock %}
 {% block main %}
-<h1>Items</h1>
+<h1>Packages</h1>
 <form class="filters" method="get">
   <label>source (glob)<input type="text" name="source" value="{{ args.source }}" placeholder="python-*"></label>
   <label>arch<input type="text" name="arch" value="{{ args.arch }}" size="8"></label>
