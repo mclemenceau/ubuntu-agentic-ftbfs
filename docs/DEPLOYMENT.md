@@ -116,19 +116,47 @@ client can manage every instance on the host and, through a privileged
 container, the host itself, so whoever took over the server would own
 every build host too. Restricted, it reaches the build workers only.
 
-On a machine that can already manage the host, with `<host>` its
-remote there, create the project. LXD restricts only a project with
-its own profiles, so give it a default profile with the host's root
-pool and bridge (`lxc profile show <host>:default` names them):
+Package code runs in the workers, so keep them off the LAN too. On a
+machine that can already manage the host, with `<host>` its remote
+there, give the workers a bridge of their own, with a network ACL that
+lets them reach the public internet (DNS and the Ubuntu archive are all
+a build needs) and nothing private: not the LAN, not the host, not the
+instances on its other bridges:
+
+```sh
+lxc network acl create <host>:ftbfs-workers
+lxc network acl rule add <host>:ftbfs-workers egress action=reject \
+  destination=0.0.0.0/8,10.0.0.0/8,100.64.0.0/10,127.0.0.0/8,\
+169.254.0.0/16,172.16.0.0/12,192.168.0.0/16,198.18.0.0/15,\
+224.0.0.0/4,240.0.0.0/4
+lxc network acl rule add <host>:ftbfs-workers egress action=allow
+lxc network create <host>:ftbfsbr0 ipv4.address=auto ipv4.nat=true \
+  ipv6.address=none security.acls=ftbfs-workers \
+  security.acls.default.egress.action=reject \
+  security.acls.default.ingress.action=reject
+```
+
+LXD applies reject rules before allow rules whatever their order, and
+a bridge ACL also covers traffic to the host itself; DHCP and DNS to
+the bridge's gateway stay open. No IPv6, so no global LAN address
+slips through. A bridge ACL does not filter traffic between instances
+on the same bridge: this one carries only workers, and port isolation
+on their NIC keeps them apart too.
+
+Then create the project. LXD restricts only a project with its own
+profiles, so give it a default profile with the host's root pool
+(`lxc profile show <host>:default` names it) and the workers' bridge,
+and allow the project that bridge only:
 
 ```sh
 lxc project create <host>:ftbfs -c features.images=true \
   -c features.profiles=true -c restricted=true \
-  -c restricted.containers.nesting=allow
+  -c restricted.containers.nesting=allow \
+  -c restricted.networks.access=ftbfsbr0
 lxc profile device add <host>:default root disk path=/ pool=default \
   --project ftbfs
 lxc profile device add <host>:default eth0 nic name=eth0 \
-  network=lxdbr0 --project ftbfs
+  network=ftbfsbr0 security.port_isolation=true --project ftbfs
 lxc config trust add <host>: --name ftbfs-server --restricted \
   --projects ftbfs                      # prints a token
 ```
@@ -136,8 +164,9 @@ lxc config trust add <host>: --name ftbfs-server --restricted \
 `restricted=true` refuses privileged containers, host paths as disks,
 `raw.*` and other low-level options, in instances and in the project's
 profiles alike, and the certificate sees no other project and cannot
-change the server's configuration. Workers need nesting (sbuild's
-unshare mode), hence the one exception.
+change the server's configuration or the host's networks: it cannot
+lift the ACL, nor put a worker on another bridge. Workers need nesting
+(sbuild's unshare mode), hence the one exception.
 
 On the server, as `ftbfs`:
 
@@ -176,6 +205,18 @@ lxc config trust show <host>:<fingerprint> \
   | sed 's/^restricted: false/restricted: true/;
          s/^projects: \[\]/projects: [ftbfs]/' \
   | lxc config trust edit <host>:<fingerprint>
+```
+
+**Isolating the workers of a host set up before the bridge.** Between
+runs: create the ACL and the bridge as above, delete the workers (the
+next build relaunches them), then move the profile and restrict the
+project:
+
+```sh
+lxc delete --force <host>:ftbfs-<builder>-1 ... --project ftbfs
+lxc profile device set <host>:default eth0 network=ftbfsbr0 \
+  security.port_isolation=true --project ftbfs
+lxc project set <host>:ftbfs restricted.networks.access=ftbfsbr0
 ```
 
 Then add `project = "ftbfs"` to the builder's table on the server;
