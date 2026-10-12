@@ -103,11 +103,12 @@ class App:
         first = lxds[0]
         fp = first.lxd.image(first.image)
         if fp is None:
-            raise LxdError(f"{first.remote}: no {first.image} image; run"
+            raise LxdError(f"{first.where} no {first.image} image; run"
                            " `ftbfs builders image`")
-        for b in {b.remote: b for b in lxds}.values():
-            if b.remote != first.remote:
-                log(f"{b.remote}: image {fp[:12]}")
+        # Images live in a project: one copy per host and project.
+        for b in {b.where: b for b in lxds}.values():
+            if b.where != first.where:
+                log(f"{b.where} image {fp[:12]}")
                 copy_image(first.lxd, b.lxd, first.image)
         return fp
 

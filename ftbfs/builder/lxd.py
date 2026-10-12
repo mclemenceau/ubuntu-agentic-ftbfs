@@ -18,7 +18,9 @@ time this process uses it and after a killed build, which stops
 anything a crash or kill left running in it.
 
 Everything goes through the `lxc` CLI, with its remotes and their TLS
-trust as configured by `lxc remote add`.
+trust as configured by `lxc remote add`. A builder may name an LXD
+project: every command and API query then targets it, so a client
+certificate restricted to that project is enough (docs/DEPLOYMENT.md).
 """
 
 from __future__ import annotations
@@ -32,6 +34,7 @@ import shlex
 import subprocess
 import threading
 import time
+import urllib.parse
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -56,17 +59,36 @@ class LxdError(BuilderUnavailable):
 
 
 class Lxd:
-    """The `lxc` CLI, bound to one remote."""
+    """The `lxc` CLI, bound to one remote and, optionally, one project
+    (None: the remote's default project)."""
 
-    def __init__(self, remote: str):
+    def __init__(self, remote: str, project: str | None = None):
         self.remote = remote
+        self.project = project
 
     def ref(self, name: str) -> str:
         return f"{self.remote}:{name}"
 
+    def argv(self, *args: str) -> list[str]:
+        """The lxc command line. `lxc query` refuses --project and
+        ignores the remote's project: its paths carry it (api())."""
+        if self.project and args[0] != "query":
+            return ["lxc", "--project", self.project, *args]
+        return ["lxc", *args]
+
+    def api(self, path: str) -> str:
+        """`lxc query`'s target for an API path, in this project."""
+        if self.project:
+            path += "?project=" + urllib.parse.quote(self.project)
+        return f"{self.remote}:{path}"
+
     def run(self, *args: str, timeout: int = 600) -> str:
+        return self._call(self.argv(*args), timeout)
+
+    def _call(self, argv: list[str], timeout: int) -> str:
+        args = argv[3:] if argv[1] == "--project" else argv[1:]
         try:
-            proc = subprocess.run(["lxc", *args], capture_output=True,
+            proc = subprocess.run(argv, capture_output=True,
                                   text=True, timeout=timeout)
         except subprocess.TimeoutExpired:
             raise LxdError(f"lxc {args[0]} timed out on {self.remote}"
@@ -79,7 +101,7 @@ class Lxd:
     def query(self, path: str) -> dict | None:
         """GET on the LXD API; None when the object does not exist."""
         try:
-            return json.loads(self.run("query", f"{self.remote}:{path}",
+            return json.loads(self.run("query", self.api(path),
                                        timeout=60))
         except LxdError as e:
             if "not found" in str(e).lower():
@@ -109,7 +131,7 @@ class Lxd:
         self.run("query", "-X", "PUT", "--data",
                  json.dumps({"target": fp,
                              "description": found.get("description", "")}),
-                 f"{self.remote}:{path}")
+                 self.api(path))
 
     def launch(self, image: str, name: str, config: dict[str, str]) -> None:
         args = ["launch", f"{self.remote}:{image}"
@@ -130,7 +152,7 @@ class Lxd:
     def exec_argv(self, name: str, argv: list[str], *, user: bool,
                   env: dict[str, str] | None = None,
                   cwd: str | None = None) -> list[str]:
-        cmd = ["lxc", "exec", self.ref(name)]
+        cmd = self.argv("exec", self.ref(name))
         if user:
             cmd += ["--user", str(UID), "--group", str(UID),
                     "--env", f"HOME={HOME}", "--env", "USER=builder",
@@ -143,8 +165,8 @@ class Lxd:
 
     def sh(self, name: str, script: str, *, user: bool = False,
            timeout: int = 600) -> str:
-        return self.run(*self.exec_argv(name, ["sh", "-ec", script],
-                                        user=user)[1:], timeout=timeout)
+        return self._call(self.exec_argv(name, ["sh", "-ec", script],
+                                         user=user), timeout)
 
     def push(self, name: str, files: list[Path], dest_dir: str) -> None:
         self.run("file", "push", "--uid", str(UID), "--gid", str(UID),
@@ -172,6 +194,7 @@ class LxdBuilder:
     name: str
     slots: int
     remote: str
+    project: str | None = None
     arches: tuple[str, ...] = ("amd64",)
     parallel: int | None = None
     image: str = IMAGE_ALIAS
@@ -185,10 +208,21 @@ class LxdBuilder:
             raise ValueError(f"builder name {self.name!r}: use lowercase"
                              " letters, digits and dashes (it names"
                              " containers)")
-        self.lxd = Lxd(self.remote)
+        if self.project is not None and not NAME_RE.match(self.project):
+            raise ValueError(f"builder {self.name}: project"
+                             f" {self.project!r}: use lowercase letters,"
+                             " digits and dashes")
+        self.lxd = Lxd(self.remote, self.project)
         self._lock = threading.Lock()
         self._free = [self.worker_name(i) for i in range(self.slots)]
         self._fresh: set[str] = set()  # restarted by this process
+
+    @property
+    def where(self) -> str:
+        """The host, and the project if any, as `remote:` or
+        `remote:project/`."""
+        project = f"{self.project}/" if self.project else ""
+        return f"{self.remote}:{project}"
 
     def worker_name(self, i: int) -> str:
         return f"ftbfs-{self.name}-{i + 1}"
@@ -224,7 +258,7 @@ class LxdBuilder:
         """Make the worker current (latest image), fresh and running."""
         fp = self.lxd.image(self.image)
         if fp is None:
-            raise LxdError(f"{self.remote}: no {self.image} image; run"
+            raise LxdError(f"{self.where} no {self.image} image; run"
                            " `ftbfs builders image`")
         inst = self.lxd.instance(w)
         if inst is not None and \
@@ -432,7 +466,8 @@ def copy_image(src: Lxd, dst: Lxd, alias: str = IMAGE_ALIAS) -> str:
     if not dst.has_image(fp):
         # Push: the source host sends it, so it need not listen on the
         # network (this machine's LXD usually does not).
-        src.run("image", "copy", "--mode=push", src.ref(alias),
+        target = ["--target-project", dst.project] if dst.project else []
+        src.run("image", "copy", "--mode=push", *target, src.ref(alias),
                 f"{dst.remote}:", timeout=3600)
     # The alias moves only once the image is there.
     dst.set_alias(alias, fp)

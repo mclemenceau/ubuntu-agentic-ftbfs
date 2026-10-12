@@ -420,3 +420,75 @@ def test_copy_image_when_the_image_is_already_there():
     Hosts(src, dst)
     copy_image(src, dst)
     assert dst.aliases == {"ftbfs-builder": "new"}
+
+
+class Recorder:
+    """subprocess.run for the real `Lxd`: records the argv, answers."""
+
+    def __init__(self, out="{}"):
+        self.out = out
+        self.argvs: list[list[str]] = []
+
+    def __call__(self, argv, **kw):
+        self.argvs.append(argv)
+        return subprocess.CompletedProcess(argv, 0, self.out, "")
+
+
+def test_project_goes_on_every_command(monkeypatch):
+    rec = Recorder('{"target": "fp1"}')
+    monkeypatch.setattr(subprocess, "run", rec)
+    lxd = Lxd("host", "ftbfs")
+    lxd.restart("w")
+    lxd.sh("w", "true", user=True)
+    assert lxd.image("ftbfs-builder") == "fp1"
+    lxd.set_alias("ftbfs-builder", "fp2")
+    assert rec.argvs[0] == ["lxc", "--project", "ftbfs", "restart",
+                            "--force", "host:w"]
+    assert rec.argvs[1][:5] == ["lxc", "--project", "ftbfs", "exec",
+                                "host:w"]
+    # `lxc query` refuses --project: the path carries it.
+    assert rec.argvs[2] == [
+        "lxc", "query",
+        "host:/1.0/images/aliases/ftbfs-builder?project=ftbfs"]
+    assert rec.argvs[-1][:4] == ["lxc", "query", "-X", "PUT"]
+    assert rec.argvs[-1][-1] == \
+        "host:/1.0/images/aliases/ftbfs-builder?project=ftbfs"
+    assert lxd.exec_argv("w", ["id"], user=False) == [
+        "lxc", "--project", "ftbfs", "exec", "host:w", "--", "id"]
+
+
+def test_no_project_keeps_the_remote_default(monkeypatch):
+    rec = Recorder()
+    monkeypatch.setattr(subprocess, "run", rec)
+    lxd = Lxd("host")
+    lxd.restart("w")
+    lxd.query("/1.0/instances/w")
+    assert rec.argvs == [["lxc", "restart", "--force", "host:w"],
+                         ["lxc", "query", "host:/1.0/instances/w"]]
+
+
+def test_errors_name_the_subcommand(monkeypatch):
+    def fail(argv, **kw):
+        return subprocess.CompletedProcess(argv, 1, "", "Error: nope")
+    monkeypatch.setattr(subprocess, "run", fail)
+    with pytest.raises(LxdError, match=r"^lxc restart --force: Error"):
+        Lxd("host", "ftbfs").restart("w")
+
+
+def test_copy_image_into_a_project(monkeypatch):
+    src = ImageHost("laptop", {"ftbfs-builder": "new"})
+    dst = ImageHost("marsangle")
+    dst.project = "ftbfs"
+    copies = []
+    run = src.run
+
+    def record(*args, timeout=600):
+        if args[:2] == ("image", "copy"):
+            copies.append(args)
+            dst.images.add("new")
+            return ""
+        return run(*args, timeout=timeout)
+    src.run = record
+    copy_image(src, dst)
+    assert copies == [("image", "copy", "--mode=push", "--target-project",
+                       "ftbfs", "laptop:ftbfs-builder", "marsangle:")]

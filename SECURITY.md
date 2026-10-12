@@ -58,7 +58,9 @@ reports, and built.
 **Builds.** Package code (`debian/rules`, test suites) runs only inside
 a build:
 - with LXD builders, in a worker container, restarted after a killed
-  build
+  build. The server's `lxc` certificate is restricted to the builders'
+  LXD project (`docs/DEPLOYMENT.md`, step 4): unrestricted, it would
+  make the server an LXD admin, so in effect root, on every build host
 - with the local builder (no `[builders.*]`), in sbuild's unshare
   chroot on the host: a user namespace with no network, as the
   operator's user. Prefer LXD builders on a machine that holds
@@ -101,6 +103,9 @@ in a command line, a config dump or an artifact.
   agent could read any file the operator's user can read and put it in
   its answer. Until agents run in an OS sandbox, run ftbfs as a
   dedicated user that holds nothing but its own key.
+- **Workers share the host's bridge.** Package code in a worker can
+  reach whatever the build host's LAN and its other instances serve
+  without authentication. The LXD API itself asks for a certificate.
 - **Plain HTTP sources.** A network attacker can make the FTBFS page
   or the Ubuntu `Sources` facts wrong (not unsafe: see Ingest), which
   can mislead triage.

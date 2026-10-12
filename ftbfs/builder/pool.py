@@ -15,7 +15,8 @@ build fail.
 
 The site config (config.local.toml) declares builders under
 `[builders.<name>]`, with `kind = "local"` (sbuild on this machine) or
-`kind = "lxd"` (worker containers on an LXD remote, see lxd.py).
+`kind = "lxd"` (worker containers on an LXD remote, in its `project`
+if given, see lxd.py).
 Without any, the pool is one local builder with `[concurrency] build`
 slots, which is how builds ran before there were several hosts.
 """
@@ -141,8 +142,10 @@ def make_pool(raw: dict[str, dict], default_slots: int,
             builders.append(LocalBuilder(name, **_common(name, conf)))
         elif kind == "lxd":
             remote = conf.pop("remote", "local")
+            project = conf.pop("project", None)
             image = conf.pop("image", None)
-            b = LxdBuilder(name, remote=remote, **_common(name, conf),
+            b = LxdBuilder(name, remote=remote, project=project,
+                           **_common(name, conf),
                            lock_dir=state_dir / "builders"
                            if state_dir else None)
             if image:

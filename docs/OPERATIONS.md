@@ -523,6 +523,7 @@ parallel = 6          # DEB_BUILD_OPTIONS parallel per build
 [builders.buildhost]
 kind = "lxd"
 remote = "buildhost"
+project = "ftbfs"     # the LXD project its trust is restricted to
 slots = 2
 parallel = 4
 ```
@@ -550,7 +551,9 @@ parallel = 4
   container. The container is the isolation boundary.
 - A worker is force-restarted the first time a run uses it and after
   a killed build, so nothing from a crashed or killed build survives.
-- Adding a host: `lxc remote add <name> <address>`, then a table.
+- Adding a host: an `ftbfs` project on it and a trust restricted to
+  it (`DEPLOYMENT.md`, step 4), `lxc remote add <name> <address>`,
+  then a table with `project = "ftbfs"`.
 
 ### Disk
 

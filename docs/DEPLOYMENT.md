@@ -12,7 +12,7 @@ Ubuntu machine works the same way. For day-to-day running see
                                                   ftbfs-daily.timer
                                                   /srv/ftbfs: state/ work/ cache/
                                                         |
-                                    lxc (TLS, trusted) -+-> buildhost: ftbfs-buildhost-1..n
+                         lxc (TLS, project ftbfs only) -+-> buildhost:ftbfs/ftbfs-buildhost-1..n
                                                         +-> another host: ...
 ```
 
@@ -110,23 +110,45 @@ daily timer's runs are bounded by the key's limit alone.
 
 ## 4. Build hosts
 
-Each LXD host must trust the server's `lxc` client. On a machine that
-can already manage the host, create a token:
+The server drives each LXD host with its `lxc` client certificate.
+Trust it for one project, `ftbfs`, and nothing else: an unrestricted
+client can manage every instance on the host and, through a privileged
+container, the host itself, so whoever took over the server would own
+every build host too. Restricted, it reaches the build workers only.
+
+On a machine that can already manage the host, with `<host>` its
+remote there, create the project. LXD restricts only a project with
+its own profiles, so give it a default profile with the host's root
+pool and bridge (`lxc profile show <host>:default` names them):
 
 ```sh
-lxc config trust add <host>: --name ftbfs-server   # prints a token
+lxc project create <host>:ftbfs -c features.images=true \
+  -c features.profiles=true -c restricted=true \
+  -c restricted.containers.nesting=allow
+lxc profile device add <host>:default root disk path=/ pool=default \
+  --project ftbfs
+lxc profile device add <host>:default eth0 nic name=eth0 \
+  network=lxdbr0 --project ftbfs
+lxc config trust add <host>: --name ftbfs-server --restricted \
+  --projects ftbfs                      # prints a token
 ```
 
-and on the server, as `ftbfs`:
+`restricted=true` refuses privileged containers, host paths as disks,
+`raw.*` and other low-level options, in instances and in the project's
+profiles alike, and the certificate sees no other project and cannot
+change the server's configuration. Workers need nesting (sbuild's
+unshare mode), hence the one exception.
+
+On the server, as `ftbfs`:
 
 ```sh
 lxc remote add buildhost <host address> --token <token>
 uv run ftbfs builders          # reachable, image, workers
 ```
 
-A trusted client can manage **every** instance on that host, not only
-the workers: the server's account is as powerful as an LXD admin there.
-Keep the server's other access tight accordingly (`../SECURITY.md`).
+with `project = "ftbfs"` in the builder's table (step 3). `lxc query`
+ignores a remote's default project, so ftbfs passes the project itself
+to every command; without `project`, it uses the remote's default.
 
 A host whose LXD only served local clients needs to listen first, on
 its LAN address: `lxc config set core.https_address <address>:8443`.
@@ -140,6 +162,26 @@ Builder names decide the worker containers' names
 same host would share containers without knowing it: never run two
 instances with the same `[builders.*]` names. If there is no image on
 the hosts yet, `uv run ftbfs builders image` builds it.
+
+**Restricting a host trusted without a project.** Between runs, from
+a machine that manages the host: create the project as above, copy the
+image into it, delete the old workers, and restrict the server's
+certificate (its fingerprint is in `lxc config trust list <host>:`):
+
+```sh
+lxc image copy <host>:ftbfs-builder <host>: --target-project ftbfs \
+  --alias ftbfs-builder
+lxc delete --force <host>:ftbfs-<builder>-1 ...
+lxc config trust show <host>:<fingerprint> \
+  | sed 's/^restricted: false/restricted: true/;
+         s/^projects: \[\]/projects: [ftbfs]/' \
+  | lxc config trust edit <host>:<fingerprint>
+```
+
+Then add `project = "ftbfs"` to the builder's table on the server;
+`uv run ftbfs builders` shows the image and no workers yet, and the
+next build launches them in the project. The old image in the default
+project can go: `lxc image delete <host>:ftbfs-builder`.
 
 ## 5. Services
 

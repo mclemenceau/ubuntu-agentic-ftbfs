@@ -399,9 +399,9 @@ def cmd_builders(app: App, a) -> None:
         return
     busy = app.builders.busy()
     for b in app.builders.builders:
-        where = getattr(b, "remote", None)
+        where = getattr(b, "where", None)
         print(f"{b.name}: {type(b).__name__}"
-              f"{' on ' + where + ':' if where else ''}, {b.slots} slots,"
+              f"{' on ' + where if where else ''}, {b.slots} slots,"
               f" arches {','.join(b.arches)}, busy {busy[b.name]}")
         if not hasattr(b, "status"):
             continue

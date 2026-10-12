@@ -123,11 +123,22 @@ def test_make_pool_lxd():
     (b,) = p.builders
     assert (b.remote, b.image, b.workers) == (
         "buildhost", "other", ["ftbfs-host-1", "ftbfs-host-2"])
+    assert (b.project, b.lxd.project, b.where) == (
+        None, None, "buildhost:")
+
+
+def test_make_pool_lxd_project():
+    p = make_pool({"host": {"kind": "lxd", "remote": "buildhost",
+                            "project": "ftbfs"}}, 4)
+    (b,) = p.builders
+    assert (b.project, b.lxd.project, b.where) == (
+        "ftbfs", "ftbfs", "buildhost:ftbfs/")
 
 
 @pytest.mark.parametrize("conf, error", [
     ({"x": {"kind": "nope"}}, "unknown kind"),
     ({"x": {"slots": 1, "typo": 1}}, "unknown keys"),
+    ({"x": {"kind": "lxd", "project": "a b"}}, "project"),
 ])
 def test_make_pool_rejects_bad_config(conf, error):
     with pytest.raises(ValueError, match=error):

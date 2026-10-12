@@ -37,6 +37,7 @@ parallel = 6
 [builders.buildhost]
 kind = "lxd"
 remote = "buildhost"  # added with `lxc remote add buildhost <address>`
+project = "ftbfs"     # the LXD project the remote's trust is limited to
 slots = 2
 parallel = 4
 
