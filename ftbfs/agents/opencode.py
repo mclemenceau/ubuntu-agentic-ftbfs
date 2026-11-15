@@ -140,6 +140,10 @@ class OpencodeBackend(AgentBackend):
     def env(self, req: AgentRequest) -> dict[str, str]:
         env = {k: v for k, v in os.environ.items() if k not in _LEAKY_ENV}
         env |= {
+            # opencode's project directory comes from $PWD, not the
+            # process cwd: unless a shell wrapper resets it (the snap's
+            # does), the agent would work in the caller's directory.
+            "PWD": str(Path(req.cwd).resolve()),
             "XDG_CONFIG_HOME": str(self.config_home.resolve()),
             "OPENCODE_CONFIG_CONTENT": json.dumps(self.config(req)),
             "OPENCODE_DISABLE_PROJECT_CONFIG": "1",

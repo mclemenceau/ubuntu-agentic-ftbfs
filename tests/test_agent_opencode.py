@@ -48,7 +48,8 @@ if "empty" not in prompt:
     emit("text", text="```json\\n" + json.dumps({
         "prompt": prompt, "argv": sys.argv[1:], "conf": conf,
         "env": {k: v for k, v in os.environ.items()
-                if k.startswith(("XDG_", "OPENCODE_"))}}) + "\\n```")
+                if k.startswith(("XDG_", "OPENCODE_")) or k == "PWD"}})
+         + "\\n```")
 step_end(0.002)
 """
 
@@ -107,6 +108,19 @@ def test_isolated_config_and_env(backend, tmp_path, monkeypatch):
     assert argv[:4] == ["run", "--pure", "--format", "json"]
     assert argv[argv.index("--agent") + 1] == "ftbfs"
     assert "--title" in argv  # no LLM call to make one up
+
+
+def test_pwd_is_the_agent_cwd(backend, tmp_path, monkeypatch):
+    # opencode takes its project directory from $PWD, and a launcher
+    # that is not a shell script (npm's, or the bare binary) passes the
+    # caller's through: the agent then works in the ftbfs checkout.
+    monkeypatch.setenv("PWD", "/home/me/ftbfs")
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    r = backend.run(AgentRequest(prompt="hello", cwd=tree,
+                                 attempt_dir=tmp_path / "a1"))
+    assert r.ok, r.error
+    assert r.data["env"]["PWD"] == str(tree.resolve())
 
 
 def test_unset_options_are_left_to_opencode(backend, tmp_path):
