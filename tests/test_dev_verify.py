@@ -92,7 +92,8 @@ def env(db, tmp_path, monkeypatch):
         " build_id, build_url, lifecycle, first_seen, last_seen)"
         " VALUES ('tinypkg/1.0-1/amd64','tinypkg','1.0-1','amd64',"
         "'proposed','FAILEDTOBUILD',1,'u','active',1,1)")
-    db.execute("INSERT INTO gate VALUES ('tinypkg/1.0-1/amd64','dev',"
+    db.execute("INSERT INTO gate (unit_id, stage, decision, by, note, ts)"
+               " VALUES ('tinypkg/1.0-1/amd64','dev',"
                "'approved','t',NULL,?)", (now(),))
     bindir = tmp_path / "bin"
     bindir.mkdir()

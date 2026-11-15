@@ -80,7 +80,8 @@ def project(tmp_path_factory):
         "notes": "", "debdiff": str(debdiff), "debdiff_lines": 1})
     result(app, iid, "verify", "ok", {"outcome": "built",
                                       "version": ver + "ubuntu1"})
-    app.db.execute("INSERT INTO gate VALUES (?, 'dev', 'pending',"
+    app.db.execute("INSERT INTO gate (unit_id, stage, decision, by, note, ts)"
+                   " VALUES (?, 'dev', 'pending',"
                    " NULL, NULL, ?)", (iid, now()))
     # an agent in flight in the running run
     adir = app.config.work_dir / src / ver / "amd64" / "dev" / "attempt-2"
@@ -415,8 +416,9 @@ def test_gone_items_leave_gates_and_inbox(tmp_path, capsys):
         "SELECT * FROM item WHERE arch='amd64' GROUP BY source"
         " ORDER BY id LIMIT 2")]
     for it in (gone, kept):
-        app.db.execute("INSERT INTO gate VALUES (?, 'dev', 'pending',"
-                       " NULL, NULL, ?)", (it["id"], now()))
+        app.db.execute("INSERT INTO gate (unit_id, stage, decision, ts)"
+                       " VALUES (?, 'dev', 'pending', ?)",
+                       (it["id"], now()))
         result(app, it["id"], "verify", "fail",
                {"key_lines": [f"{it['source']} still broken"]})
         result(app, it["id"], "excerpt", "error", {"error": "boom"})

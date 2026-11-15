@@ -129,6 +129,11 @@ SCHEMA = [
         PRIMARY KEY (source, version)
     );
     """,
+    # v5: the inputs an approval was given for (the inputs hash without
+    # the loop/retry nonce); NULL until the unit first passes the gate
+    """
+    ALTER TABLE gate ADD COLUMN inputs TEXT;
+    """,
 ]
 
 

@@ -326,6 +326,15 @@ When verify fails, dev runs again on top of the previous attempt's
 edits, with the new build error. From the second loop it uses the
 large tier.
 
+An approval is for the inputs dev had when it was given: the
+diagnosis, the reproduction and the agent spec. If one of them changes
+later (triage or diagnose re-ran for the cluster, reproduce rebuilt,
+`pipeline.toml` changed), the gate goes back to pending with the note
+"inputs changed since approval" instead of paying for a new attempt.
+Approving it again starts a fresh round: medium tier, full loop
+budget, no carried-over edits. Loops and `retry` stay within one
+approval.
+
 - **Output:** `work/<src>/<ver>/<arch>/dev/attempt-N/`: `fix.debdiff`,
   `edits.diff`, and the agent's prompt, transcript and notes
 - **Tokens:** about $0.10 per attempt on the medium tier, $0.27 on

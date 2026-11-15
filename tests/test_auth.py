@@ -137,7 +137,8 @@ def project(tmp_path_factory):
                  ok=True, cost=SENTINEL, usage=usage["usage"])
     app.db.event("unit_end", run_id=run_id, stage="dev", unit=iid,
                  status="ok", cost=SENTINEL)
-    app.db.execute("INSERT INTO gate VALUES (?, 'dev', 'pending',"
+    app.db.execute("INSERT INTO gate (unit_id, stage, decision, by, note, ts)"
+                   " VALUES (?, 'dev', 'pending',"
                    " NULL, NULL, ?)", (iid, now()))
     app.reporter.write(app.config.work_dir, src, ver)
     lp = FakeLaunchpad()

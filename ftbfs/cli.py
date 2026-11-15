@@ -465,6 +465,7 @@ def cmd_relocate(app: App, a) -> None:
           f" -> {rel.new}/")
     print(f"  database values: {fields or 'none'}")
     print(f"  results moved onto a new inputs hash: {rel.hashes}")
+    print(f"  approvals rebound to their moved inputs: {rel.gates}")
     print(f"  symlinks under work/ and cache/: {rel.links}")
 
 

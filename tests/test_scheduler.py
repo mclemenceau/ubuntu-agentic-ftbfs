@@ -349,6 +349,76 @@ def test_tier_escalates_after_loops(db, units, tmp_path):
     assert tiers == ["fake-m", "fake-m", "fake-l"]
 
 
+def approve(db, uid, stage):
+    """What App.approve records: the decision and a gate_approved event."""
+    db.execute("UPDATE gate SET decision='approved', inputs=NULL"
+               " WHERE unit_id=? AND stage=?", (uid, stage))
+    db.event("gate_approved", unit=uid, stage=stage, by="test")
+
+
+def test_upstream_change_reopens_an_approved_gate(db, units, tmp_path):
+    conf = {"a": {}, "dev": {"after": ["a"], "gate": "manual"}}
+    one = Units([next(iter(units.items.values()))])
+    (uid,) = one.items
+    sched(db, one, tmp_path, [make_stage("a"), make_stage("dev")],
+          conf).run()
+    approve(db, uid, "dev")
+    sched(db, one, tmp_path, [make_stage("a"), make_stage("dev")],
+          conf).run()
+    assert calls("dev") == [uid]
+
+    # A new upstream result (here a version bump of `a`) changes what
+    # dev would work from: it waits for a person instead of running.
+    v2 = [make_stage("a", version="2"), make_stage("dev")]
+    s = sched(db, one, tmp_path, v2, conf)
+    s.run()
+    assert calls("dev") == [uid]
+    gate = db.one("SELECT * FROM gate WHERE unit_id=?", (uid,))
+    assert gate["decision"] == "pending"
+    assert db.one("SELECT 1 FROM event WHERE type='gate_reopened'")
+    assert dict(s.explain({"item": uid}))["dev"] == \
+        "waiting for manual approval"
+
+    approve(db, uid, "dev")
+    s.run()
+    assert calls("dev") == [uid, uid]
+
+
+def test_loops_restart_with_a_new_approval(db, units, tmp_path):
+    tiers = []
+
+    def run_dev(self, ctx, unit_ids):
+        (uid,) = unit_ids
+        tiers.append(ctx.run_agent(uid, "fix it").model)
+        return [StageResult(uid, Status.OK, {"n": len(tiers)})]
+
+    def stages(version):
+        dev = make_stage("dev", kind=Kind.AGENT)
+        dev.run = run_dev
+        review = make_stage(
+            "review", fn=lambda ctx, uid: StageResult(uid, Status.FAIL, {}))
+        return [make_stage("a", version=version), dev, review]
+
+    conf = {"a": {},
+            "dev": {"after": ["a"], "gate": "manual",
+                    "agent": {"tier": "medium", "escalate_after_loops": 2}},
+            "review": {"after": ["dev"],
+                       "on_fail": {"goto": "dev", "max_loops": 2}}}
+    one = Units([next(iter(units.items.values()))])
+    (uid,) = one.items
+    sched(db, one, tmp_path, stages("1"), conf).run()
+    approve(db, uid, "dev")
+    sched(db, one, tmp_path, stages("1"), conf).run()
+    # Loops within one approval do not reopen the gate.
+    assert tiers == ["fake-m", "fake-m", "fake-l"]
+
+    sched(db, one, tmp_path, stages("2"), conf).run()
+    assert len(tiers) == 3  # upstream changed: back to the gate
+    approve(db, uid, "dev")
+    sched(db, one, tmp_path, stages("2"), conf).run()
+    assert tiers[3:] == ["fake-m", "fake-m", "fake-l"]
+
+
 @pytest.mark.parametrize("conf, registry, match", [
     ({"x": {}}, {}, "not registered"),
     ({"a": {"after": ["b"]}, "b": {"after": ["a"]}}, "ab", "cycle"),

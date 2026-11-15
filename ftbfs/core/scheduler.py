@@ -33,7 +33,7 @@ from dataclasses import MISSING, dataclass, fields
 from ..agents.base import AgentBackend
 from ..builder.pool import BuilderPool, NoBuilder, make_pool
 from ..db import DB, now
-from .context import Context, Paths, Units
+from .context import Context, Paths, Units, approval_event
 from .expr import evaluate
 from .pipeline import Pipeline, StageSpec
 from .stage import FINAL, Kind, StageResult, Status
@@ -64,6 +64,8 @@ class Decision:
     run: bool
     reason: str
     inputs_hash: str | None = None
+    # Approved gate seen for the first time: the inputs to bind it to.
+    gate_inputs: str | None = None
 
 
 class Cancelled(Exception):
@@ -149,7 +151,10 @@ class Scheduler:
         return row["id"] if row else None
 
     def inputs_hash(self, spec: StageSpec, uid: str, ctx: Context,
-                    deps: dict[str, dict | None]) -> str:
+                    deps: dict[str, dict | None],
+                    nonce: bool = True) -> str:
+        """The cache key. Without the nonce, it is what a gate approval
+        is bound to: loops and retries stay within one approval."""
         blob = {
             "stage_version": spec.stage.version,
             "options": spec.options,
@@ -161,17 +166,18 @@ class Scheduler:
                 )
                 for name, d in deps.items()
             },
-            "nonce": self._nonce(spec, uid),
+            "nonce": self._nonce(spec, uid) if nonce else None,
             "stage_inputs": spec.stage.inputs(ctx, uid),
         }
         return _stable_hash(blob)
 
-    def hash_now(self, spec: StageSpec, uid: str) -> str:
+    def hash_now(self, spec: StageSpec, uid: str,
+                 nonce: bool = True) -> str:
         """The inputs hash this unit would have now, whatever its
         dependencies' status, `when` or gate say (for relocate)."""
         ctx = self._context(spec, {uid: 0})
         deps = self._dep_results(spec, uid, spec.after)
-        return self.inputs_hash(spec, uid, ctx, deps)
+        return self.inputs_hash(spec, uid, ctx, deps, nonce)
 
     def decide(self, spec: StageSpec, uid: str, ctx: Context) -> Decision:
         deps = self._dep_results(spec, uid, spec.after)
@@ -192,15 +198,30 @@ class Scheduler:
         reason = spec.stage.eligible(ctx, uid)
         if reason:
             return Decision(False, f"not eligible: {reason}")
+        adopt = None
         if spec.gate == "manual":
             gate = self.db.one(
-                "SELECT decision FROM gate WHERE unit_id=? AND stage=?",
-                (uid, spec.name),
+                "SELECT decision, inputs FROM gate WHERE unit_id=? AND"
+                " stage=?", (uid, spec.name),
             )
             if gate is None or gate["decision"] == "pending":
-                return Decision(False, "waiting for manual approval")
+                return Decision(False, WAITING)
             if gate["decision"] == "rejected":
                 return Decision(False, "rejected at gate")
+            # An approval is for the inputs it was given on: new
+            # upstream results (a re-run triage, diagnose or reproduce)
+            # send the unit back to a person, not to a paid re-run.
+            key = self.inputs_hash(spec, uid, ctx, deps, nonce=False)
+            if gate["inputs"] is None:
+                adopt = key
+            elif gate["inputs"] != key:
+                return Decision(False, WAITING, gate_inputs=key)
+        d = self._decide_cached(spec, uid, ctx, deps)
+        d.gate_inputs = adopt
+        return d
+
+    def _decide_cached(self, spec: StageSpec, uid: str, ctx: Context,
+                       deps: dict[str, dict | None]) -> Decision:
         ih = self.inputs_hash(spec, uid, ctx, deps)
         prev = self.db.query(
             "SELECT status, run_id FROM stage_result WHERE unit_id=? AND"
@@ -296,8 +317,10 @@ class Scheduler:
         skipped = [n for n in self.pipeline.specs if n not in names]
         for stage, per in self.plan(
                 [n for n in skipped if self.pipeline[n].gate]).items():
+            spec = self.pipeline[stage]
+            ctx = self._context(spec, dict.fromkeys(per.get("gate", []), 0))
             for uid in per.get("gate", []):
-                self._ensure_pending_gate(self.pipeline[stage], uid)
+                self._gate_upkeep(spec, uid, self.decide(spec, uid, ctx))
         return totals
 
     def _check_control(self) -> None:
@@ -319,10 +342,9 @@ class Scheduler:
         ready: list[tuple[str, str]] = []
         for uid in uids:
             d = self.decide(spec, uid, probe)
+            self._gate_upkeep(spec, uid, d)
             if d.run:
                 ready.append((uid, d.inputs_hash))
-            elif d.reason == "waiting for manual approval":
-                self._ensure_pending_gate(spec, uid)
         if not ready:
             return {}
         attempts = {
@@ -445,7 +467,9 @@ class Scheduler:
             n = self.db.one(
                 "SELECT COUNT(*) AS n FROM event WHERE unit=? AND stage=?"
                 " AND type='loop_back' AND json_extract(payload, '$.from')"
-                " = ?", (uid, target, spec.name))["n"]
+                " = ? AND id > ?", (uid, target, spec.name,
+                                    approval_event(self.db, uid, target))
+            )["n"]
             if n >= spec.on_fail.max_loops:
                 ctx.event("loop_exhausted", unit=uid, target=target,
                           loops=n)
@@ -456,6 +480,27 @@ class Scheduler:
                                            "result_id": result_id,
                                            "data": res.data})
 
+    def _gate_upkeep(self, spec: StageSpec, uid: str,
+                     d: Decision) -> None:
+        """The gate writes a decision implies: queue a pending gate, bind
+        a fresh approval to the current inputs, or reopen an approval
+        whose inputs changed."""
+        if d.reason != WAITING:
+            if d.gate_inputs is not None:
+                self.db.execute(
+                    "UPDATE gate SET inputs=? WHERE unit_id=? AND stage=?"
+                    " AND decision='approved' AND inputs IS NULL",
+                    (d.gate_inputs, uid, spec.name))
+        elif d.gate_inputs is not None:
+            self.db.execute(
+                "UPDATE gate SET decision='pending', inputs=NULL, by=NULL,"
+                " note=?, ts=? WHERE unit_id=? AND stage=?",
+                ("inputs changed since approval", now(), uid, spec.name))
+            self.db.event("gate_reopened", run_id=self.run_id, unit=uid,
+                          stage=spec.name)
+        else:
+            self._ensure_pending_gate(spec, uid)
+
     def _ensure_pending_gate(self, spec: StageSpec, uid: str) -> None:
         with self.db.transaction():
             exists = self.db.one(
@@ -465,11 +510,15 @@ class Scheduler:
             if exists:
                 return
             self.db.execute(
-                "INSERT INTO gate VALUES (?, ?, 'pending', NULL, NULL, ?)",
+                "INSERT INTO gate (unit_id, stage, decision, ts)"
+                " VALUES (?, ?, 'pending', ?)",
                 (uid, spec.name, now()),
             )
         self.db.event("gate_wait", run_id=self.run_id, unit=uid,
                       stage=spec.name)
+
+
+WAITING = "waiting for manual approval"
 
 
 def plan_outcome(reason: str) -> str:
@@ -478,7 +527,7 @@ def plan_outcome(reason: str) -> str:
     rejected) or gave-up."""
     if reason == "ready":
         return "ready"
-    if reason == "waiting for manual approval":
+    if reason == WAITING:
         return "gate"
     if reason.startswith("cached"):
         return "done"

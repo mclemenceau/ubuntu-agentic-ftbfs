@@ -174,3 +174,42 @@ def test_cli(moved, capsys):
     out = capsys.readouterr().out
     assert f"rewrote {old}/ -> {app.config.root}/" in out
     assert "symlinks under work/ and cache/: 4" in out
+
+
+@register
+class GatedStage(Stage):
+    """Like dev: gated, reads an upstream result that holds a path."""
+
+    name = "reloc_gated"
+    kind = Kind.DETERMINISTIC
+
+    def run(self, ctx, unit_ids):
+        CALLS.extend(self.name for _ in unit_ids)
+        return [StageResult(u, Status.OK, {}) for u in unit_ids]
+
+
+def test_relocate_keeps_approvals(tmp_path, snapshot):
+    old, new = tmp_path / "old", tmp_path / "new"
+    old.mkdir()
+    (old / "pipeline.toml").write_text(
+        PIPELINE + '[stage.reloc_gated]\nafter = ["reloc_log"]\n'
+        'gate = "manual"\n')
+    app = App(old)
+    store(app.db, snapshot, old / "state" / "s.json")
+    app.run(FLT)
+    units = [r["unit_id"] for r in app.db.query(
+        "SELECT unit_id FROM gate WHERE stage='reloc_gated'")]
+    app.approve("reloc_gated", units, "approved", "test")
+    app.run(FLT)  # runs them and binds the approvals to their inputs
+    assert not app.db.query("SELECT 1 FROM gate WHERE inputs IS NULL")
+    app.db.conn.close()
+    shutil.move(old, new)
+    CALLS.clear()
+    app = App(new)
+
+    relocate(app, old)
+
+    app.run(FLT)
+    assert CALLS == []
+    assert not app.db.query("SELECT 1 FROM gate WHERE decision != "
+                            "'approved'")

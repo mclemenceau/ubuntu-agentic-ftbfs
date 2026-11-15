@@ -72,7 +72,8 @@ def test_approve_expands_source_to_waiting_items(tmp_path, snapshot):
     ids = [r["id"] for r in app.db.query(
         "SELECT id FROM item WHERE source='freehsm-c' ORDER BY id")]
     assert len(ids) > 1
-    app.db.execute("INSERT INTO gate VALUES (?, 'reproduce', 'pending',"
+    app.db.execute("INSERT INTO gate (unit_id, stage, decision, by, note, ts)"
+                   " VALUES (?, 'reproduce', 'pending',"
                    " NULL, NULL, ?)", (ids[0], now()))
     main(["--root", str(tmp_path), "approve", "reproduce", "freehsm-c"])
     approved = [r["unit_id"] for r in app.db.query(

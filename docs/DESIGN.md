@@ -272,6 +272,15 @@ too, since it is where most of the money goes.
 minimal. A person reviews every debdiff and decides what reaches the
 archive or a bug tracker.
 
+**An approval is bound to its inputs.** The gate records the unit's
+inputs hash without the loop/retry nonce the first time the unit
+passes it; when that changes (new upstream results, a new agent spec
+or prompt), the gate reopens. Loop-backs are counted from the latest
+approval, so escalation and the loop budget start over with it.
+Before this, an approval stayed valid forever: once a unit had used
+its loops, every upstream re-run re-ran dev unattended on the large
+tier, which was 64% of the Opus spend up to November 2026.
+
 ## A server-rendered UI with htmx
 
 **Choice.** FastAPI and Jinja templates, htmx for partial updates and

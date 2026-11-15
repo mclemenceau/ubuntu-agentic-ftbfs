@@ -32,6 +32,15 @@ if TYPE_CHECKING:
     from .pipeline import StageSpec
 
 
+def approval_event(db: DB, uid: str, stage: str) -> int:
+    """Id of the latest gate approval of `stage` for this unit (0 if
+    none). Loop-backs count from there: a new approval of new inputs
+    starts again with the full loop budget and the stage's base tier."""
+    row = db.one("SELECT MAX(id) AS id FROM event WHERE unit=? AND"
+                 " stage=? AND type='gate_approved'", (uid, stage))
+    return row["id"] or 0
+
+
 @dataclass(frozen=True)
 class Paths:
     root: Path  # project dir (config, rules)
@@ -195,12 +204,14 @@ class Context:
         return {**json.loads(row["data"]), "status": row["status"]}
 
     def feedback(self, unit_id: str) -> list[dict]:
-        """Loop-back payloads sent to this stage for this unit, oldest
-        first (e.g. review findings, verify failure excerpt)."""
+        """Loop-back payloads sent to this stage for this unit since its
+        latest gate approval, oldest first (e.g. review findings, verify
+        failure excerpt)."""
         rows = self.db.query(
             "SELECT payload FROM event WHERE unit=? AND stage=?"
-            " AND type='loop_back' ORDER BY id",
-            (unit_id, self.spec.name),
+            " AND type='loop_back' AND id > ? ORDER BY id",
+            (unit_id, self.spec.name,
+             approval_event(self.db, unit_id, self.spec.name)),
         )
         return [json.loads(r["payload"]) for r in rows]
 

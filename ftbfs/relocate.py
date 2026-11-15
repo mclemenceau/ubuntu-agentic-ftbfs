@@ -39,6 +39,7 @@ class Relocation:
     new: Path
     fields: dict[str, int] = field(default_factory=dict)  # per table
     hashes: int = 0  # stage results moved onto a new inputs hash
+    gates: int = 0  # approvals rebound to their moved inputs
     links: int = 0  # symlinks retargeted
     dry_run: bool = False
 
@@ -58,8 +59,18 @@ def relocate(app: App, old: Path, dry_run: bool = False) -> Relocation:
     try:
         with app.db.transaction():
             before = _hashes(app, selections)
+            gates0 = _gate_inputs(app, selections[0])
             rel.fields = _rewrite(app.db, f"{old}/", f"{new}/")
             after = _hashes(app, selections)
+            gates1 = _gate_inputs(app, selections[0])
+            for (stage, uid), (stored, h0) in gates0.items():
+                h1 = gates1[stage, uid][1]
+                # Only approvals that matched their inputs before the
+                # move: a stale one must still go back to a person.
+                if stored == h0 != h1:
+                    rel.gates += app.db.execute(
+                        "UPDATE gate SET inputs=? WHERE stage=? AND"
+                        " unit_id=?", (h1, stage, uid)).rowcount
             moves = {(stage, uid, h0): after[i][stage, uid]
                      for i, hashes in enumerate(before)
                      for (stage, uid), h0 in hashes.items()
@@ -131,6 +142,22 @@ def _hashes(app: App, selections: list[Units]
             if (spec.name, uid) in have
         })
     return out
+
+
+def _gate_inputs(app: App, units: Units
+                 ) -> dict[tuple[str, str], tuple[str, str]]:
+    """Per bound approval: the inputs it is bound to and the ones the
+    unit has now (over all items, like the scheduler's own check)."""
+    sched = app.scheduler(units)
+    return {
+        (r["stage"], r["unit_id"]): (
+            r["inputs"],
+            sched.hash_now(app.pipeline[r["stage"]], r["unit_id"],
+                           nonce=False))
+        for r in app.db.query("SELECT stage, unit_id, inputs FROM gate"
+                              " WHERE inputs IS NOT NULL")
+        if r["stage"] in app.pipeline.specs
+    }
 
 
 def _rewrite(db: DB, old: str, new: str) -> dict[str, int]:

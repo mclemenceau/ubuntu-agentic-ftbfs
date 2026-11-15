@@ -374,10 +374,13 @@ class App:
                 units.append(target)
         for uid in units:
             self.db.execute(
-                "INSERT INTO gate VALUES (?, ?, ?, ?, ?, ?)"
+                # A decision is for the inputs of now: the scheduler
+                # records them when the unit next passes the gate.
+                "INSERT INTO gate (unit_id, stage, decision, by, note, ts)"
+                " VALUES (?, ?, ?, ?, ?, ?)"
                 " ON CONFLICT(unit_id, stage) DO UPDATE SET"
                 " decision=excluded.decision, by=excluded.by,"
-                " note=excluded.note, ts=excluded.ts",
+                " note=excluded.note, ts=excluded.ts, inputs=NULL",
                 (uid, stage, decision, by, note, now()),
             )
             self.db.event(f"gate_{decision}", unit=uid, stage=stage,
