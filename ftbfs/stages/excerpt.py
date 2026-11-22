@@ -17,6 +17,11 @@ class ExcerptStage(Stage):
     version = "5"  # bump when logs.extract() changes
     description = "Fetch the build log and extract the failure excerpt"
 
+    def inputs(self, ctx, unit_id):
+        # A Launchpad retry keeps the build id and log URL (part of the
+        # unit's key) but not the finish time.
+        return ctx.item(unit_id)["finished_at"]
+
     def run(self, ctx, unit_ids):
         out = []
         for uid in unit_ids:
@@ -26,7 +31,7 @@ class ExcerptStage(Stage):
                                        {"reason": "no build log"}))
                 continue
             path = fetch_log(item["log_url"], ctx.paths.cache / "logs",
-                             item["build_id"])
+                             item["build_id"], item["finished_at"])
             ex = extract(read_log(path))
             dest = ctx.workdir(uid) / "excerpt.txt"
             dest.write_text(ex.text)

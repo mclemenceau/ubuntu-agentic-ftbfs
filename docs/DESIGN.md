@@ -131,10 +131,11 @@ runs them in DAG order and stores one result per unit and stage. A
 result is reused while its inputs hash is unchanged: the stage version,
 its options, its agent spec, the unit, the upstream results it depends
 on, the stage's own inputs (its prompt, `rules.toml`, the day for
-facts) and a nonce bumped by a retry. `when` predicates over upstream
-results decide whether a stage applies, `gate = "manual"` waits for a
-person, and `on_fail` loops back to an earlier stage a bounded number
-of times.
+facts, the build's finish time for excerpt: Launchpad retries a build
+under the same id and log URL) and a nonce bumped by a retry. `when`
+predicates over upstream results decide whether a stage applies,
+`gate = "manual"` waits for a person, and `on_fail` loops back to an
+earlier stage a bounded number of times.
 
 **Why.** New steps (an adversarial review, filing a bug) must be one
 class plus a config block, without touching the scheduler. Caching by

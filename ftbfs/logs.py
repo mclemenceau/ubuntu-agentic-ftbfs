@@ -131,11 +131,22 @@ COMMAND_MAX = 100
 
 
 def fetch_log(url: str, cache_dir: Path, build_id: int,
+              finished_at: str | None = None,
               timeout: int = 120) -> Path:
-    """Download (once) and return the cached gzipped log."""
+    """Download (once per attempt) and return the cached gzipped log.
+
+    Launchpad retries a build under the same id and log URL: only the
+    finish time tells the new log from the old one. It is kept in
+    `<build_id>.finished` next to the log, and a log fetched for
+    another finish time, or for an unknown one, is fetched again. The
+    log keeps its path, so a log that did not change gives the same
+    excerpt, and nothing after it runs again."""
     cache_dir.mkdir(parents=True, exist_ok=True)
     path = cache_dir / f"{build_id}.txt.gz"
-    if path.exists() and path.stat().st_size > 0:
+    stamp = cache_dir / f"{build_id}.finished"
+    if (path.exists() and path.stat().st_size > 0
+            and (finished_at is None or (
+                stamp.exists() and stamp.read_text() == finished_at))):
         return path
     tmp = path.with_suffix(".part")
     req = urllib.request.Request(url, headers={"User-Agent": "ftbfs-review"})
@@ -145,6 +156,9 @@ def fetch_log(url: str, cache_dir: Path, build_id: int,
         data = gzip.compress(data)
     tmp.write_bytes(data)
     tmp.rename(path)
+    # After the log: a crash in between only means fetching it again.
+    if finished_at is not None:
+        stamp.write_text(finished_at)
     return path
 
 
