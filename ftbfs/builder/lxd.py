@@ -42,7 +42,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .base import BuilderUnavailable, BuildResult
-from .local import sbuild_command, supervise
+from .local import check_chroot, sbuild_command, supervise
 
 IMAGE_ALIAS = "ftbfs-builder"
 BASE_IMAGE = "ubuntu:26.04"
@@ -118,6 +118,10 @@ class Lxd:
 
     def has_image(self, fp: str) -> bool:
         return self.query(f"/1.0/images/{fp}") is not None
+
+    def image_properties(self, fp: str) -> dict[str, str]:
+        found = self.query(f"/1.0/images/{fp}")
+        return (found or {}).get("properties") or {}
 
     def set_alias(self, alias: str, fp: str) -> None:
         """Point `alias` at image `fp`, in one step when it exists: a
@@ -317,6 +321,7 @@ class LxdBuilder:
             run = supervise(cmd, build_dir, dict(os.environ), timeout,
                             idle_timeout, on_kill=lambda: self.reset(w))
             log = self._fetch_log(w, build_dir)
+        check_chroot(build_dir)
         return BuildResult(
             ok=run.returncode == 0 and not run.timed_out,
             exit_code=run.returncode,
@@ -351,6 +356,8 @@ class LxdBuilder:
         """Image and workers as the host sees them (for `builders`)."""
         try:
             fp = self.lxd.image(self.image)
+            series = (self.lxd.image_properties(fp).get(SERIES_PROPERTY)
+                      if fp else None)
             workers = {}
             for w in self.workers:
                 inst = self.lxd.instance(w)
@@ -360,12 +367,28 @@ class LxdBuilder:
                     == fp}
         except LxdError as e:
             return {"reachable": False, "error": str(e)}
-        return {"reachable": True, "image": fp, "workers": workers}
+        return {"reachable": True, "image": fp, "series": series,
+                "workers": workers}
+
+
+def series_warning(image: str | None, snapshot: str | None) -> str | None:
+    """What is wrong with an image's series, if anything: builds need
+    the chroot of the latest snapshot's series (without it, sbuild
+    stops and the builder is taken out)."""
+    if snapshot is None or image == snapshot:
+        return None
+    if image is None:
+        return ("image series unknown (built before ftbfs recorded it):"
+                " run `ftbfs builders image`")
+    return (f"image is for {image}, the latest snapshot is {snapshot}:"
+            " run `ftbfs builders image`")
 
 
 # -- the image ---------------------------------------------------------------
 
 ARCHIVE = "http://archive.ubuntu.com/ubuntu"
+# Image property naming the series its chroots are for.
+SERIES_PROPERTY = "ftbfs.series"
 
 SBUILD_CONFIG = """\
 # Written by ftbfs (builder image). Unshare mode: every build unpacks a
@@ -375,6 +398,9 @@ $chroot_mode = 'unshare';
 # days and bootstraps a chroot from the network for every build. sbuild
 # upgrades the chroot at the start of each build anyway.
 $unshare_mmdebstrap_max_age = -1;
+# Without a tarball for the distribution, stop: never bootstrap a chroot
+# of sbuild's own, with other sources and pinning (a stale image).
+$unshare_mmdebstrap_auto_create = 0;
 $run_lintian = 0;
 $clean_source = 0;
 1;
@@ -388,10 +414,18 @@ def image_script(series: str, arches: list[str]) -> str:
     suites = [series, f"{series}-updates", dist]
     mirrors = " ".join(shlex.quote(f"deb {ARCHIVE} {s} main universe")
                        for s in suites)
+    # -proposed is NotAutomatic (priority 100): apt would install a
+    # build-dependency from the release pocket when it has one, where
+    # Launchpad takes the newer version in -proposed. Pinned like the
+    # release pocket, the highest version wins, as on Launchpad.
+    pin = shlex.quote(
+        '--setup-hook=mkdir -p "$1"/etc/apt/preferences.d && printf'
+        f' "Package: *\\nPin: release a={dist}\\nPin-Priority: 500\\n"'
+        ' > "$1"/etc/apt/preferences.d/proposed.pref')
     tarballs = "\n".join(
         f"runuser -u builder -- mmdebstrap --mode=unshare"
         f" --variant=buildd --arch={a} --include=ca-certificates"
-        f" {series} {HOME}/.cache/sbuild/{dist}-{a}.tar {mirrors}"
+        f" {pin} {series} {HOME}/.cache/sbuild/{dist}-{a}.tar {mirrors}"
         for a in arches)
     return f"""\
 export DEBIAN_FRONTEND=noninteractive
@@ -442,6 +476,7 @@ def build_image(lxd: Lxd, series: str, arches: list[str],
         lxd.run("publish", lxd.ref(tmp), f"{lxd.remote}:",
                 "--alias", staging,
                 f"description=ftbfs builder {series} {date}",
+                f"{SERIES_PROPERTY}={series}",
                 timeout=3600)
     finally:
         lxd.delete(tmp)

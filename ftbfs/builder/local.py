@@ -20,7 +20,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
-from .base import BuildResult
+from .base import BuilderUnavailable, BuildResult
 
 ARTIFACT_SUFFIXES = (".deb", ".ddeb", ".udeb", ".changes", ".buildinfo")
 
@@ -36,6 +36,11 @@ GRACE_S = 60
 # (`$unshare_tmpdir_template`, /tmp/tmp.sbuild.XXXXXXXXXX by default).
 CHROOT_RE = re.compile(r"^I: Unpacking \S+ to (/\S*/tmp\.sbuild\.\w+)\.\.\.$",
                        re.MULTILINE)
+# Unshare mode without a tarball for the distribution: sbuild either
+# stops, or (`$unshare_mmdebstrap_auto_create`, its default) bootstraps
+# a chroot of its own, with other sources and pinning than Launchpad's.
+NO_CHROOT_RE = re.compile(r"^E: Chroot for distribution (\S+), architecture"
+                          r" (\S+) not found$", re.MULTILINE)
 
 
 def fetch_source(source: str, version: str, cache_dir: Path) -> Path:
@@ -158,6 +163,21 @@ def remove_chroot(build_dir: Path) -> Path | None:
     return None
 
 
+def check_chroot(build_dir: Path) -> None:
+    """Raise BuilderUnavailable if sbuild found no chroot tarball: what
+    it built, if anything, says nothing about the package."""
+    for log in (build_dir / "sbuild.out", *sorted(build_dir.glob("*.build"))):
+        if not log.is_file() or log.is_symlink():
+            continue
+        with log.open(errors="replace") as f:
+            m = NO_CHROOT_RE.search(f.read(64_000))
+        if m:
+            raise BuilderUnavailable(
+                f"no chroot for {m[1]}-{m[2]}: run `ftbfs"
+                " builders image` (LXD), or create the tarball (README,"
+                " \"Quick start\")")
+
+
 @dataclass
 class Supervised:
     returncode: int
@@ -245,6 +265,8 @@ class LocalBuilder:
     def build(self, dsc: Path, arch: str, dist: str, build_dir: Path,
               extra_repos: list[str], parallel: int, timeout: int,
               idle_timeout: int) -> BuildResult:
-        return build(dsc, arch, dist, build_dir, extra_repos,
-                     parallel=parallel, timeout=timeout,
-                     idle_timeout=idle_timeout)
+        res = build(dsc, arch, dist, build_dir, extra_repos,
+                    parallel=parallel, timeout=timeout,
+                    idle_timeout=idle_timeout)
+        check_chroot(build_dir)
+        return res

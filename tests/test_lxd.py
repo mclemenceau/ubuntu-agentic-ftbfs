@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from ftbfs.builder import local
+from ftbfs.builder.base import BuilderUnavailable
 from ftbfs.builder.lxd import (
     HOME,
     Lxd,
@@ -25,6 +26,7 @@ from ftbfs.builder.lxd import (
     copy_image,
     dsc_files,
     image_script,
+    series_warning,
 )
 
 FAKE_SBUILD = """#!/bin/sh
@@ -32,6 +34,10 @@ dsc=$(eval echo \\${$#})
 name=$(basename "$dsc" .dsc)
 [ -f "$dsc" ] && [ -f "${name%_*}_1.0.orig.tar.gz" ] || exit 99
 echo "parallel: $DEB_BUILD_OPTIONS verbose: $1"
+if [ -n "$MISSING_CHROOT" ]; then
+    echo "E: Chroot for distribution d-proposed, architecture amd64 not found"
+    exit 1
+fi
 log="${name}_amd64-2026-01-01T00:00:00Z.build"
 echo "E: Build failure" > "$log"
 ln -sf "$log" "${name}_amd64.build"
@@ -70,6 +76,9 @@ class FakeLxd(Lxd):
 
     def image(self, alias):
         return self.images.get(alias)
+
+    def image_properties(self, fp):
+        return {"ftbfs.series": "stonking"} if fp == "fp1" else {}
 
     def launch(self, image, name, config):
         self.calls.append(("launch", name, image))
@@ -253,6 +262,44 @@ def test_image_script():
     assert f"{HOME}/.cache/sbuild/stonking-proposed-i386.tar" in script
     assert "stonking-proposed main universe" in script
     assert "$unshare_mmdebstrap_max_age = -1;" in script
+    # No chroot of sbuild's own making when the tarball is missing.
+    assert "$unshare_mmdebstrap_auto_create = 0;" in script
+    # Build-dependencies come from -proposed when it has them, as on
+    # Launchpad; its Release file alone (NotAutomatic) would rank it
+    # below the release pocket.
+    hook = ("Package: *\\nPin: release a=stonking-proposed\\n"
+            "Pin-Priority: 500\\n")
+    assert hook in script
+    assert "/etc/apt/preferences.d/" in script
+    assert script.count("--setup-hook=") == 2  # one per tarball
+
+
+def test_missing_chroot_is_a_builder_problem(env, monkeypatch):
+    tmp, dsc = env
+    monkeypatch.setenv("MISSING_CHROOT", "1")
+    with pytest.raises(BuilderUnavailable,
+                       match="no chroot for d-proposed-amd64.*"
+                             "ftbfs builders image"):
+        go(builder(tmp), dsc, tmp / "out")
+
+
+def test_status_tells_the_image_series(env):
+    tmp, _ = env
+    st = builder(tmp).status()
+    assert st["image"] == "fp1" and st["series"] == "stonking"
+    fake = FakeLxd("r", tmp / "hosts", image="fp0")  # an older image
+    assert builder(tmp, fake).status()["series"] is None
+
+
+def test_image_series_and_the_snapshot():
+    assert series_warning("tenacious", "tenacious") is None
+    assert series_warning("stonking", "tenacious") == (
+        "image is for stonking, the latest snapshot is tenacious:"
+        " run `ftbfs builders image`")
+    assert series_warning(None, "tenacious") == (
+        "image series unknown (built before ftbfs recorded it):"
+        " run `ftbfs builders image`")
+    assert series_warning("tenacious", None) is None
 
 
 class ImageHost(Lxd):
@@ -267,6 +314,7 @@ class ImageHost(Lxd):
         self.images: set[str] = set(self.aliases.values())
         self.fail = fail  # subcommands that fail, e.g. a full disk
         self.published = 0
+        self.properties: dict[str, dict[str, str]] = {}
 
     def instance(self, name):
         return None
@@ -318,6 +366,8 @@ class ImageHost(Lxd):
                 self.published += 1
                 fp = f"new{self.published}"
                 self.images.add(fp)
+                self.properties[fp] = dict(
+                    a.split("=", 1) for a in rest if "=" in a)
                 if "--alias" in rest:
                     alias = rest[rest.index("--alias") + 1]
                     assert alias not in self.aliases
@@ -368,6 +418,7 @@ def test_build_image_publishes_on_the_builder_host():
     host = ImageHost("laptop", {"ftbfs-builder": "old"})
     fp = build_image(host, "stonking", ["amd64"], log=lambda m: None)
     assert fp == "new1"
+    assert host.properties["new1"]["ftbfs.series"] == "stonking"
     assert host.aliases == {"ftbfs-builder": "new1"}
     assert host.images == {"new1"}
 

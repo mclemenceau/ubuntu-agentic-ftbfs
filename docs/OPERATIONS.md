@@ -514,8 +514,12 @@ start of every build, so the tarball only needs remaking when the
 series changes, provided sbuild keeps it: by default it discards a
 tarball older than 7 days and bootstraps a chroot from the network for
 every build ("Existing chroot tarball is too old" in the log), so set
-`$unshare_mmdebstrap_max_age = -1;` too. Package code runs in sbuild's
-chroot as your user, so
+`$unshare_mmdebstrap_max_age = -1;` too, and
+`$unshare_mmdebstrap_auto_create = 0;` so that a missing tarball stops
+sbuild instead of making it bootstrap a chroot unlike Launchpad's. A
+build that logs "Chroot for distribution ... not found" is not a
+result either way: the builder is taken out (`builder_down`) and the
+unit waits. Package code runs in sbuild's chroot as your user, so
 prefer LXD builders on a machine that holds anything of value
 (`SECURITY.md`, "Builds").
 
@@ -547,14 +551,25 @@ parallel = 4
   image at their next build.
 - Rebuild the image when the series changes, or when "reproduced"
   rates suddenly drop or builds fail in chroot setup (a stale or broken
-  chroot). sbuild upgrades the chroot at the start of every build, and
-  the image tells it to keep the tarball whatever its age
-  (`$unshare_mmdebstrap_max_age = -1`), so an image a few weeks old is
-  fine otherwise. Images built before October 2026 lack that setting:
+  chroot). With an image for another series, sbuild finds no tarball:
+  the builder is taken out and units wait ("no chroot for
+  <series>-proposed-<arch>" in the run's `builder_down` events and the
+  unit's reason). Images built before November 2026 instead
+  bootstrapped a chroot of their own for every build, and ftbfs took
+  those builds as results. sbuild upgrades the chroot at the start of
+  every build, and the image tells it to keep the tarball whatever its
+  age (`$unshare_mmdebstrap_max_age = -1`), so an image a few weeks old
+  is fine otherwise. Images built before October 2026 lack that setting:
   after 7 days their builds bootstrap a chroot from the network each
   time and fail when a mirror does. Rebuild one whose build logs say
   "Existing chroot tarball is too old".
-- `ftbfs builders` shows each host: reachable, image, and each worker.
+- `ftbfs builders` shows each host: reachable, image and its series,
+  and each worker, with a warning when the image is not for the latest
+  snapshot's series (or does not say, as before November 2026).
+- The tarball pins `-proposed` like the release pocket: its Release
+  file is NotAutomatic, so apt alone would take a build-dependency from
+  the release pocket where Launchpad takes the newer one in
+  `-proposed`.
 - The image sets sbuild's AppArmor profile to complain mode: enforced,
   it blocks apt's network access in the unshare chroot inside a
   container. The container is the isolation boundary.

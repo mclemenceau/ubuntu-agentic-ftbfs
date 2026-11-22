@@ -241,13 +241,16 @@ providers would mean editing every stage.
 against `<series>-proposed`, as Launchpad does. Builders are declared in
 `config.local.toml`. An LXD builder runs one worker container per slot,
 all from one image (`ftbfs builders image`: sbuild, mmdebstrap, the
-chroot tarball); a build goes to the builder with the most free slots
-for its arch. A worker is force-restarted the first time a run uses it
-and after a killed build, and a lock per worker keeps two runs apart. A
-builder that fails before sbuild starts is marked down for ten minutes
-and the build moves on; if every builder for the arch is down, the unit
-is pending, not failed. Without builders, plain sbuild runs on the
-host.
+chroot tarball, with `-proposed` pinned like the release pocket so
+build-dependencies resolve as on Launchpad); a build goes to the
+builder with the most free slots for its arch. A builder without the
+tarball for the series is down, not a source of results: sbuild would
+otherwise bootstrap a chroot unlike Launchpad's. A worker is
+force-restarted the first time a run uses it and after a killed build,
+and a lock per worker keeps two runs apart. A builder that fails before
+sbuild starts is marked down for ten minutes and the build moves on;
+if every builder for the arch is down, the unit is pending, not failed.
+Without builders, plain sbuild runs on the host.
 
 **Why.** One image means a signature mismatch is never a host
 difference. Workers per slot keep builds from sharing state, and package

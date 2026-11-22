@@ -377,3 +377,28 @@ def test_descendants_finds_children_outside_the_session():
     finally:
         local.stop(proc, grace=1)
     assert not _alive(child)
+
+
+MISSING_CHROOT = ("E: Chroot for distribution d-proposed, architecture"
+                  " amd64 not found\n")
+
+
+def test_missing_chroot_is_a_builder_problem_not_a_result(env,
+                                                          monkeypatch):
+    """Without its chroot tarball, sbuild may bootstrap a chroot of its
+    own (another environment than Launchpad's) and even build. That
+    says nothing about the package: the builder needs a new image."""
+    db, item, tmp, ex = env
+    log = tmp / "fallback.build"
+    log.write_text(MISSING_CHROOT + "I: Built successfully\n")
+    monkeypatch.setenv("FAKE_SBUILD_LOG", str(log))
+    monkeypatch.setenv("FAKE_SBUILD_EXIT", "0")
+    pool = BuilderPool([LocalBuilder("local", 1)])
+    totals = run_repro(db, [item], tmp, {item["id"]: ex}, run_id=1,
+                       builders=pool)
+    assert totals["reproduce"] == {"pending": 1}
+    status, data = result(db, item["id"])
+    assert data["phase"] == "waiting-for-builder"
+    reason = pool.down()["local"]
+    assert "no chroot for d-proposed-amd64" in reason
+    assert "ftbfs builders image" in reason

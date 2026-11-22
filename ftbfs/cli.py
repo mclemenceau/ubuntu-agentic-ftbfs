@@ -397,7 +397,10 @@ def cmd_builders(app: App, a) -> None:
               else app.sync_builder_image())
         print(f"builder image {fp[:12]} on every LXD host")
         return
+    from .builder.lxd import series_warning
+
     busy = app.builders.busy()
+    snap = app.db.one("SELECT series FROM snapshot ORDER BY id DESC LIMIT 1")
     for b in app.builders.builders:
         where = getattr(b, "where", None)
         print(f"{b.name}: {type(b).__name__}"
@@ -409,7 +412,11 @@ def cmd_builders(app: App, a) -> None:
         if not st["reachable"]:
             print(f"  unreachable: {st['error']}")
             continue
-        print(f"  image {st['image'][:12] if st['image'] else 'missing'}")
+        print(f"  image {st['image'][:12] if st['image'] else 'missing'}"
+              f"{' (' + st['series'] + ')' if st['series'] else ''}")
+        if st["image"] and (warning := series_warning(
+                st["series"], snap["series"] if snap else None)):
+            print(f"  warning: {warning}")
         for w, info in st["workers"].items():
             state = "not created" if info is None else info["status"] + (
                 "" if info["current"] else ", old image")
