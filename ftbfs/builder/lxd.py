@@ -323,7 +323,7 @@ class LxdBuilder:
             run = supervise(cmd, build_dir, dict(os.environ), timeout,
                             idle_timeout, on_kill=lambda: self.reset(w))
             log = self._fetch_log(w, build_dir)
-        check_chroot(build_dir)
+        check_chroot(build_dir, log)
         return BuildResult(
             ok=run.returncode == 0 and not run.timed_out,
             exit_code=run.returncode,

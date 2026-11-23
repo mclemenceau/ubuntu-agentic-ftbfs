@@ -18,6 +18,7 @@ import time
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .base import BuilderUnavailable, BuildResult
@@ -163,19 +164,38 @@ def remove_chroot(build_dir: Path) -> Path | None:
     return None
 
 
-def check_chroot(build_dir: Path) -> None:
+def check_chroot(build_dir: Path, log: Path | None) -> None:
     """Raise BuilderUnavailable if sbuild found no chroot tarball: what
-    it built, if anything, says nothing about the package."""
-    for log in (build_dir / "sbuild.out", *sorted(build_dir.glob("*.build"))):
-        if not log.is_file() or log.is_symlink():
+    it built, if anything, says nothing about the package. Only this
+    build's output counts: sbuild.out and the log it returned."""
+    for path in (build_dir / "sbuild.out", log):
+        if path is None or not path.is_file() or path.is_symlink():
             continue
-        with log.open(errors="replace") as f:
+        with path.open(errors="replace") as f:
             m = NO_CHROOT_RE.search(f.read(64_000))
         if m:
             raise BuilderUnavailable(
                 f"no chroot for {m[1]}-{m[2]}: run `ftbfs"
                 " builders image` (LXD), or create the tarball (README,"
                 " \"Quick start\")")
+
+
+def fresh_build_dir(build_dir: Path) -> None:
+    """Empty build_dir for a new build. It may hold an earlier build's
+    output (an attempt dir is reused when no result was stored for it,
+    and a failed-over build retries in it): its .build log would be
+    taken for this build's. What cannot be removed (files a killed
+    build left to subordinate uids) is moved aside."""
+    if build_dir.is_symlink() or build_dir.is_file():
+        build_dir.unlink()
+    elif build_dir.exists():
+        try:
+            shutil.rmtree(build_dir)
+        except OSError:
+            stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+            build_dir.rename(build_dir.with_name(
+                f"{build_dir.name}.stale-{stamp}"))
+    build_dir.mkdir(parents=True)
 
 
 @dataclass
@@ -268,5 +288,5 @@ class LocalBuilder:
         res = build(dsc, arch, dist, build_dir, extra_repos,
                     parallel=parallel, timeout=timeout,
                     idle_timeout=idle_timeout)
-        check_chroot(build_dir)
+        check_chroot(build_dir, res.log)
         return res

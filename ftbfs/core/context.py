@@ -264,6 +264,7 @@ class Context:
             with self.builders.slot(arch) as b:
                 self.event("build_start", unit=unit_id, where=b.name,
                            arch=arch, **event)
+                local.fresh_build_dir(build_dir)
                 try:
                     res = b.build(
                         dsc, arch, dist, build_dir, extra_repos,

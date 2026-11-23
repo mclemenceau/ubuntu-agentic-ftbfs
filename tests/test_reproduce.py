@@ -402,3 +402,44 @@ def test_missing_chroot_is_a_builder_problem_not_a_result(env,
     reason = pool.down()["local"]
     assert "no chroot for d-proposed-amd64" in reason
     assert "ftbfs builders image" in reason
+
+
+def test_stale_files_in_a_reused_attempt_dir_are_not_this_build(env):
+    """An attempt dir is reused when no result was stored for it (a run
+    killed or a unit left waiting). The .build log of an earlier build
+    there, from an image without the tarball, says nothing about this
+    build, nor do its binaries."""
+    db, item, tmp, ex = env
+    build_dir = (tmp / "work" / item["source"] / item["version"]
+                 / item["arch"] / "reproduce" / "attempt-1" / "build")
+    build_dir.mkdir(parents=True)
+    stale = build_dir / (f"{item['source']}_{item['version']}_amd64"
+                         "-2026-11-16T10:00:00Z.build")
+    stale.write_text(MISSING_CHROOT + "I: Built successfully\n")
+    (build_dir / "stale_amd64.deb").write_text("")
+    pool = BuilderPool([LocalBuilder("local", 1)])
+    totals = run_repro(db, [item], tmp, {item["id"]: ex}, run_id=1,
+                       builders=pool)
+    assert totals["reproduce"] == {"ok": 1}
+    assert pool.down() == {}
+    status, data = result(db, item["id"])
+    assert data["outcome"] == outcome.REPRODUCED
+    assert Path(data["log"]).parent == build_dir
+    assert sorted(p.name for p in build_dir.iterdir()) == sorted([
+        "command.txt", "pid", "sbuild.out", Path(data["log"]).name])
+
+
+def test_fresh_build_dir_moves_aside_what_it_cannot_remove(tmp_path,
+                                                           monkeypatch):
+    build_dir = tmp_path / "build"
+    build_dir.mkdir()
+    (build_dir / "old.build").write_text("")
+
+    def denied(path, *a, **kw):
+        raise PermissionError(13, "Permission denied", str(path))
+    monkeypatch.setattr(shutil, "rmtree", denied)
+    local.fresh_build_dir(build_dir)
+    assert list(build_dir.iterdir()) == []
+    aside, = (p for p in tmp_path.iterdir() if p != build_dir)
+    assert aside.name.startswith("build.stale-")
+    assert (aside / "old.build").exists()

@@ -519,9 +519,11 @@ every build ("Existing chroot tarball is too old" in the log), so set
 sbuild instead of making it bootstrap a chroot unlike Launchpad's. A
 build that logs "Chroot for distribution ... not found" is not a
 result either way: the builder is taken out (`builder_down`) and the
-unit waits. Package code runs in sbuild's chroot as your user, so
-prefer LXD builders on a machine that holds anything of value
-(`SECURITY.md`, "Builds").
+unit waits. Each build starts in an empty `attempt-N/build/` (what an
+earlier build left there and could not be removed is moved to
+`build.stale-<time>/`), so only its own log counts. Package code runs
+in sbuild's chroot as your user, so prefer LXD builders on a machine
+that holds anything of value (`SECURITY.md`, "Builds").
 
 With LXD, each host is one table, and each slot is a worker container
 on it:
