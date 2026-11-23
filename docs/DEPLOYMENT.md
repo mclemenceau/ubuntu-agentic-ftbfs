@@ -375,7 +375,10 @@ changed) and `systemctl restart ftbfs-web`.
 The daily service starts a fresh process each time, so it needs no
 restart. Read the release notes first: a change to `pipeline.toml`, a
 prompt, `rules.toml` or a stage version re-runs that stage and what
-follows it, which can cost tokens.
+follows it, which can cost tokens. An update that changes the hash
+recipe needs `uv run ftbfs rehash --dry-run`, then `uv run ftbfs
+rehash`, before the next run (`OPERATIONS.md`, "After a change to the
+hash recipe"); a rollback past it needs the snapshot.
 
 Roll back with `git checkout <previous tag>`, `uv sync --frozen` and a
 restart. The database schema only migrates forward: if the newer

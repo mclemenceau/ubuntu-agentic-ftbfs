@@ -66,6 +66,13 @@ stages that cost money:
 Do it when the result should change, and say so in the commit message.
 Comments in `pipeline.toml` and `config.toml` are not hashed.
 
+A result field that only records how a run went (a duration, a path
+into an attempt dir, the builder) belongs in the stage's `volatile`
+list, so that a re-run finding the same thing does not change the
+inputs after it. Adding a field there, or changing how the scheduler
+hashes, changes stored hashes too: bump `HASH_RECIPE` and teach `ftbfs
+rehash` the step (DESIGN, "A DAG of plugin stages").
+
 ## Running the pipeline cheaply
 
 Up to `classify` and `facts`, nothing costs tokens:

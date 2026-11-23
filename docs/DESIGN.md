@@ -142,6 +142,19 @@ class plus a config block, without touching the scheduler. Caching by
 inputs makes running again always safe and cheap: editing a prompt
 re-runs that stage and what follows it, nothing else.
 
+**Upstream results enter the hash without their volatile fields.** A
+stage lists the fields of its results that record how a run went, not
+what it found (`volatile`): for reproduce, the build's duration, its
+log and excerpt paths and the builder. They are left out of the inputs
+of the stages after it, so a free reproduce re-run that finds the same
+failure keeps dev cached and dev's approval bound. The excerpt text is
+not a usable key either: builds of the same failure differ in test
+timings, temporary file names and timestamps; the signature and key
+lines say what failed. Until November 2026 (hash recipe 1) the whole
+result was hashed, and every reproduce re-run reopened dev's gate.
+`ftbfs rehash` moves a database from one recipe to the next
+(`ftbfs/rehash.py`).
+
 **`when` is a restricted evaluator** (`ftbfs/core/expr.py`): literals,
 names, attribute and constant-subscript access, comparisons, `and`,
 `or`, `not`. Anything else is rejected at parse time, and a missing
@@ -152,7 +165,10 @@ instead of skipping a stage.
 **The cost of this choice:** anything in the hash is a migration. A
 renamed option, a version bump or a prompt edit re-runs that stage and
 everything after it, including paid agent stages, so they are made on
-purpose and announced in the commit.
+purpose and announced in the commit. A change to how the hash is
+computed, rather than to what goes in, gets a new `HASH_RECIPE` and a
+step in `ftbfs rehash` that moves stored hashes onto it, so that it
+re-runs nothing by itself.
 
 ## `ftbfs run` is a pass, not a daemon
 

@@ -14,6 +14,7 @@ from collections import Counter
 from pathlib import Path
 
 from .app import App
+from .core.scheduler import HASH_RECIPE
 from .db import PENDING_GATES
 
 
@@ -476,6 +477,29 @@ def cmd_relocate(app: App, a) -> None:
     print(f"  symlinks under work/ and cache/: {rel.links}")
 
 
+def cmd_rehash(app: App, a) -> None:
+    from .rehash import rehash
+
+    try:
+        r = rehash(app, a.dry_run)
+    except ValueError as e:
+        sys.exit(str(e))
+    verb = "would" if r.dry_run else "did"
+    print(f"rehash ({verb} change; inputs hash recipe"
+          f" {HASH_RECIPE}):")
+    for label, units in (("results moved onto the new hash", r.results),
+                         ("approvals rebound", r.bindings),
+                         ("approvals restored", r.restored)):
+        print(f"  {label}: {len(units)}")
+        for u in units:
+            print(f"    {u}")
+    for why, units in r.kept.items():
+        print(f"  reopened approvals kept for a person, {why}:"
+              f" {len(units)}")
+        for u in units:
+            print(f"    {u}")
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="ftbfs")
     p.add_argument("--root", default=".", help="project directory")
@@ -588,6 +612,14 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("action", choices=["pause", "resume", "cancel"])
     s.add_argument("--run", type=int)
     s.set_defaults(func=cmd_control)
+
+    s = sub.add_parser("rehash", help="after an update that changes"
+                       " the inputs hash recipe: move stored hashes onto"
+                       " it, keeping cached results cached, and restore"
+                       " approvals reopened only by volatile fields")
+    s.add_argument("--dry-run", action="store_true",
+                   help="print what would change, change nothing")
+    s.set_defaults(func=cmd_rehash)
 
     s = sub.add_parser("relocate", help="after moving the project"
                        " directory: rewrite paths under the old root,"

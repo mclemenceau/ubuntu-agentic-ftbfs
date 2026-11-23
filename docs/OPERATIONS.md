@@ -615,6 +615,27 @@ inputs hash its rewritten upstream data gives, so the next run plans
 the same work as before the move: compare the Next steps preview
 before and after. Run it between runs, never during one.
 
+### After a change to the hash recipe
+
+When an update changes how inputs hashes are computed (`HASH_RECIPE`
+in `ftbfs/core/scheduler.py`; the commit says so), run between runs,
+right after updating:
+
+```sh
+uv run ftbfs rehash --dry-run   # lists what it would change
+uv run ftbfs rehash
+```
+
+It moves each stored result and bound approval onto the hash the new
+recipe gives for the same upstream results, so the next run plans the
+same work as before. It then restores approvals that the old recipe
+reopened only for volatile fields (recipe 2: a reproduce re-run that
+found the same failure): an approval reopened since and not decided
+again, whose stage's latest result is ok and cached for the inputs the
+unit has now. They are recorded `by migration` with a `gate_restored`
+event. Any other reopened approval stays with a person, and it lists
+them with why. Running it again changes nothing.
+
 ## Emergency controls
 
 | Situation | Action |

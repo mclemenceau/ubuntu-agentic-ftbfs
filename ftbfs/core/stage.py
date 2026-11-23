@@ -82,6 +82,12 @@ class Stage(ABC):
     batch_size: ClassVar[int] = 1
     description: ClassVar[str] = ""
 
+    # Result fields that record how a run went, not what it found
+    # (timings, paths, the builder): left out of the inputs hash of the
+    # stages after this one, so that a re-run finding the same thing
+    # does not change their inputs (nor reopen their gates).
+    volatile: ClassVar[tuple[str, ...]] = ()
+
     def inputs(self, ctx: Context, unit_id: str) -> Any:
         """Extra stage-specific inputs folded into the cache key."""
         return None

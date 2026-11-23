@@ -39,6 +39,10 @@ from .pipeline import Pipeline, StageSpec
 from .stage import FINAL, Kind, StageResult, Status
 
 MAX_PASSES = 50
+# How upstream results feed an inputs hash: 1, the whole result; 2,
+# without the producing stage's volatile fields. `ftbfs rehash` moves
+# stored hashes from one to the next (ftbfs/rehash.py).
+HASH_RECIPE = 2
 MAX_ERRORS_PER_INPUTS = 3
 
 DEFAULT_CONCURRENCY = {
@@ -95,6 +99,7 @@ class Scheduler:
                             **{Kind(k): v
                                for k, v in (concurrency or {}).items()}}
         self.run_id = run_id
+        self.recipe = HASH_RECIPE
         self.builders = builders or make_pool(
             {}, self.concurrency[Kind.BUILD])
         # Build workers only wait for a builder slot; the pool is what
@@ -162,14 +167,28 @@ class Scheduler:
             "unit": self._unit_data(spec, uid),
             "deps": {
                 name: None if d is None else _stable_hash(
-                    {k: v for k, v in d.items() if k != "id"}
-                )
+                    self._dep_key(name, d))
                 for name, d in deps.items()
             },
             "nonce": self._nonce(spec, uid) if nonce else None,
             "stage_inputs": spec.stage.inputs(ctx, uid),
         }
         return _stable_hash(blob)
+
+    def _dep_key(self, name: str, d: dict) -> dict:
+        """What of an upstream result goes into the inputs hash: all of
+        it but its id and the producing stage's volatile fields."""
+        drop = {"id"}
+        if self.recipe >= 2:
+            drop.update(self.pipeline[name].stage.volatile)
+        return {k: v for k, v in d.items() if k not in drop}
+
+    def hash_with(self, spec: StageSpec, uid: str,
+                  deps: dict[str, dict | None], nonce: bool = True) -> str:
+        """The inputs hash this unit would have with these upstream
+        results instead of the latest ones (for rehash)."""
+        ctx = self._context(spec, {uid: 0})
+        return self.inputs_hash(spec, uid, ctx, deps, nonce)
 
     def hash_now(self, spec: StageSpec, uid: str,
                  nonce: bool = True) -> str:

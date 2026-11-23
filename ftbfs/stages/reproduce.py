@@ -57,6 +57,11 @@ class ReproduceStage(Stage):
     version = "1"
     description = "Rebuild the failing version (sbuild or PPA) and " \
                   "compare with the Launchpad failure"
+    # The excerpt text varies between builds of the same failure (test
+    # timings, temporary file names, "Build finished at"): the
+    # signature and key lines say what failed.
+    volatile = ("duration_s", "log", "excerpt_path", "builder",
+                "web_link", "requested_at", "polled")
 
     def _local(self, ctx, arch: str) -> bool:
         return (arch in ctx.options.get("local_arches", ["amd64"])
