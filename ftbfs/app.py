@@ -349,6 +349,26 @@ class App:
         return out
 
 
+    def outdated(self, item_ids: list[str], stage: str = "verify"
+                 ) -> dict[str, list[tuple[str, str]]]:
+        """Per item whose latest `stage` result is no longer current:
+        why (Scheduler.outdated). Items left out are current. Decided
+        for each item, whatever the run selection."""
+        rows = []
+        for i in range(0, len(item_ids), 500):
+            chunk = item_ids[i:i + 500]
+            rows += all_items(self.db, "WHERE i.id IN"
+                              f" ({','.join('?' * len(chunk))})", chunk)
+        sched = self.scheduler(Units(rows, self.db))
+        out = {}
+        for r in rows:
+            uid_for = {"item": r["id"], "package": r["source"]}
+            if r["cluster_id"]:
+                uid_for["cluster"] = r["cluster_id"]
+            if why := sched.outdated(uid_for, stage):
+                out[r["id"]] = why
+        return out
+
     # -- controls (shared by the CLI and the web UI; all are events) -----
 
     def approve(self, stage: str, targets: list[str], decision: str,

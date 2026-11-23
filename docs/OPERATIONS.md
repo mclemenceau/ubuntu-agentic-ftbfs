@@ -106,7 +106,11 @@ through the same code as the CLI and are recorded as events. Pages:
   diagnosis, syncs and merges from Debian, and a preview of what the
   next run would do, with a button to start it. A disposition on a
   source version (accepted, uploaded, rejected as "won't fix", handled)
-  takes it out of the inbox and out of later runs.
+  takes it out of the inbox and out of later runs. A verified fix is
+  listed apart as outdated, with why, while dev or verify would not
+  keep their results: new upstream results reopened dev's gate (bound
+  to the inputs it was approved on) or block it, or verify runs again.
+  It comes back to review once both are current again.
 - **Pipeline** (`/overview`): the latest snapshot and its delta, the
   DAG with counts per stage, the runs
 - **Run**: live counters, agents and builds in flight with the host

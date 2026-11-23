@@ -15,10 +15,13 @@ from __future__ import annotations
 import json
 
 from ..app import App
+from ..core.scheduler import plan_outcome
 from ..filters import Filter
 from . import queries as q
 
 RISKS = {"low": 0, "medium": 1, "high": 2}
+# What dev runs on (pipeline.toml, stage.dev `when`).
+REPRODUCED = ("reproduced", "reproduced-similar")
 # How many units a preview lists by name per stage.
 PREVIEW_NAMES = 12
 
@@ -42,6 +45,28 @@ def _context(core: App, items: dict[str, dict]) -> dict[str, dict]:
             "diagnose": _data(c.get("diagnose")),
             "reproduce": _data(mine.get("reproduce")),
         }
+    return out
+
+
+def _outdated_why(arch: str, why: list[tuple[str, str]],
+                  reproduce: dict) -> list[str]:
+    """Why a verified fix is not current, for a person."""
+    out = []
+    for stage, reason in why:
+        match plan_outcome(reason):
+            case "gate":
+                text = (f"{stage} is back at its gate: its inputs changed"
+                        " after the fix (approve it to redo the fix)")
+            case "ready":
+                text = (f"{stage} would run again: its inputs changed"
+                        " after the fix, or it was retried")
+            case _:
+                text = f"{stage} is held: {reason}"
+        out.append(f"{arch}: {text}")
+    rep = reproduce.get("outcome")
+    if rep and rep not in REPRODUCED:
+        out.append(f"{arch}: the latest reproduce says {rep}, not the"
+                   " failure the fix is for")
     return out
 
 
@@ -74,12 +99,15 @@ def build(core: App, flt: Filter) -> dict:
     def disposed(it: dict | None) -> bool:
         return it is not None and (it["source"], it["version"]) in disp
 
-    # Verified fixes: to review, or accepted and waiting for upload.
+    # Verified fixes: to review, or accepted and waiting for upload. A
+    # fix whose unit has new upstream results since (dev back at its
+    # gate, or blocked) is outdated: listed apart, with why.
     verified = q.latest_with_status(db, "verify", "ok")
     vitems = q.items_by_id(db, [r["unit_id"] for r in verified])
     vlatest = q.latest_by_unit(db, sorted(vitems))
     review: dict[tuple, dict] = {}
     upload: dict[tuple, dict] = {}
+    entries = []
     for r in verified:
         it = vitems.get(r["unit_id"])
         if it is None or it["lifecycle"] == "gone":
@@ -94,8 +122,15 @@ def build(core: App, flt: Filter) -> dict:
             "source": key[0], "version": key[1], "arches": [],
             "unit": it["id"],
             "dev": _data(vlatest.get(it["id"], {}).get("dev")),
-            "disposition": d})
+            "disposition": d, "outdated": []})
         entry["arches"].append(it["arch"])
+        entries.append((entry, it))
+    outdated = core.outdated(sorted(it["id"] for _, it in entries))
+    for entry, it in entries:
+        why = outdated.get(it["id"])
+        if why:
+            rep = _data(vlatest.get(it["id"], {}).get("reproduce"))
+            entry["outdated"] += _outdated_why(it["arch"], why, rep)
 
     # Needs a human: fixes that do not build once the loop is spent,
     # and errors the next run will not retry by itself.
@@ -187,7 +222,8 @@ def build(core: App, flt: Filter) -> dict:
 
     snaps = q.snapshots(db)
     return {
-        "review": list(review.values()),
+        "review": [e for e in review.values() if not e["outdated"]],
+        "outdated": [e for e in review.values() if e["outdated"]],
         "upload": list(upload.values()),
         "human": human,
         "lp_retry": lp_retry,

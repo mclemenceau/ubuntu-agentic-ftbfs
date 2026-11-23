@@ -133,9 +133,10 @@ def agent(req):
 IDENTITY = {"name": "Test Dev", "email": "dev@example.org"}
 
 
-def run(db, item, tmp, identity=IDENTITY, responder=agent):
+def scheduler(db, item, tmp, identity=IDENTITY, responder=agent,
+              reproduced="reproduced"):
     rep = type("Rep", (Seed,), {"name": "reproduce",
-                                "payload": {"outcome": "reproduced"}})
+                                "payload": {"outcome": reproduced}})
     exc = type("Exc", (Seed,), {"name": "excerpt", "payload": {
         "signature": "orig", "key_lines": ["e"], "text": "t"}})
     registry = {**discover(), "reproduce": rep, "excerpt": exc}
@@ -147,9 +148,13 @@ def run(db, item, tmp, identity=IDENTITY, responder=agent):
     backend = FakeBackend(responder=responder)
     pipeline = build({"stage": conf}, registry, "fake")
     paths = Paths(tmp, tmp / "work", tmp / "cache")
-    totals = Scheduler(db, pipeline, Units([item], db), {"fake": backend},
-                       paths, identity=identity).run()
-    return totals, backend
+    return Scheduler(db, pipeline, Units([item], db), {"fake": backend},
+                     paths, identity=identity), backend
+
+
+def run(db, item, tmp, identity=IDENTITY, responder=agent, **kw):
+    sched, backend = scheduler(db, item, tmp, identity, responder, **kw)
+    return sched.run(), backend
 
 
 def latest(db, stage):
@@ -182,6 +187,28 @@ def test_dev_verify_loop_until_it_builds(env, monkeypatch):
     assert "tinypkg (1.0-1ubuntu1) stonking" in debdiff
     assert "XSBC-Original-Maintainer: Someone" in debdiff  # first delta
     assert latest(db, "verify")[1]["outcome"] == "built"
+
+
+def test_verified_fix_outdated_by_a_new_reproduction(env, monkeypatch):
+    """A verified fix is current while dev and verify would keep their
+    results. A new reproduction (here: Launchpad's build now fails
+    otherwise) reopens dev's gate, bound to the old inputs: the fix is
+    for a failure that is gone."""
+    db, item, tmp = env
+    monkeypatch.setenv("FAIL_TIMES", "0")
+    run(db, item, tmp)
+    assert latest(db, "verify")[0] == "ok"
+    uid_for = {"item": item["id"], "package": item["source"]}
+    sched, _ = scheduler(db, item, tmp)
+    assert sched.outdated(uid_for, "verify") == []
+
+    db.event("retry", stage="reproduce", unit=item["id"])
+    totals, _ = run(db, item, tmp, reproduced="different-failure")
+    assert totals["reproduce"] == {"ok": 1} and "dev" not in totals
+    assert latest(db, "verify")[0] == "ok"  # still the old verify
+    sched, _ = scheduler(db, item, tmp)
+    assert sched.outdated(uid_for, "verify") == [
+        ("dev", "waiting for manual approval")]
 
 
 def test_loop_gives_up_after_max_loops(env, monkeypatch):

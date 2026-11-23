@@ -205,9 +205,25 @@ def test_gate_decision_from_ui(client, project):
                       " unit=? AND stage='dev'", (iid,))
 
 
-def test_next_steps_inbox(client, project):
+def test_outdated_verified_fix_is_listed_apart(client, project):
+    """The seeded fix was verified, but dev could not run on what the
+    pipeline has now (no reproduction): not one to accept as is."""
+    src = project["src"]
+    page = client.get("/").text
+    review = page[page.index('id="review"'):page.index('id="outdated"')]
+    outdated = page[page.index('id="outdated"'):page.index('id="upload"')]
+    assert src not in review and "Nothing to review." in review
+    assert src in outdated and "fix.debdiff" in outdated
+    assert "amd64: dev is held: waiting for reproduce" in outdated
+    assert "accepted" not in outdated  # only "won't fix" offered
+
+
+def test_next_steps_inbox(client, project, monkeypatch):
     app, iid = project["app"], project["iid"]
     src, ver = project["src"], project["ver"]
+    # As if dev and verify were current for their inputs.
+    monkeypatch.setattr(App, "outdated", lambda self, ids, stage="verify":
+                        {})
     page = client.get("/").text
     review = page[page.index('id="review"'):page.index('id="upload"')]
     assert src in review and "fix.debdiff" in review

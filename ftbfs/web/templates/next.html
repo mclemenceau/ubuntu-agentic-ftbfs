@@ -37,6 +37,21 @@
 {% endfor %}
 </table>
 {% else %}<p class="muted">Nothing to review.</p>{% endif %}
+{% if n.outdated %}
+<h3 id="outdated">Outdated verified fixes <span class="muted">({{ n.outdated|length }})</span></h3>
+<p class="muted small">Verified, but their package has new results since (a new build log, reproduction or diagnosis): the fix may be for a failure Launchpad no longer has. They come back above once dev and verify are current again.</p>
+<table>
+<thead><tr><th>Package</th><th>Fix</th><th>Why it is outdated</th><th>Decision</th></tr></thead>
+{% for f in n.outdated %}
+<tr>
+  <td><a href="/pkg/{{ f.source|urlq }}/{{ f.version|urlq }}"><b>{{ f.source }}</b></a><br><span class="mono small">{{ f.version }} &middot; {{ f.arches|join(', ') }}</span></td>
+  <td class="mono small">{{ f.dev.version }}<br>{% if f.dev.debdiff %}{{ file_link(f.dev.debdiff, 'debdiff') }}{% endif %}</td>
+  <td class="small warn">{% for w in f.outdated %}{{ w }}{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
+  <td>{{ dispose(f.source, f.version, ['rejected']) }}</td>
+</tr>
+{% endfor %}
+</table>
+{% endif %}
 
 <h2 id="upload">2. Upload accepted fixes <span class="muted">({{ n.upload|length }})</span></h2>
 {% if n.upload %}
@@ -45,7 +60,7 @@
 {% for f in n.upload %}
 <tr>
   <td><a href="/pkg/{{ f.source|urlq }}/{{ f.version|urlq }}"><b>{{ f.source }}</b></a> <span class="mono small">{{ f.version }}</span></td>
-  <td class="mono small">{{ f.dev.version }} {% if f.dev.debdiff %}{{ file_link(f.dev.debdiff, 'debdiff') }}{% endif %}</td>
+  <td class="mono small">{{ f.dev.version }} {% if f.dev.debdiff %}{{ file_link(f.dev.debdiff, 'debdiff') }}{% endif %}{% if f.outdated %}<br><span class="warn" title="{{ f.outdated|join('; ') }}">outdated since accepted: {{ f.outdated|first }}</span>{% endif %}</td>
   <td class="mono small">{{ f.disposition.ts }}</td>
   <td>{{ dispose(f.source, f.version, ['uploaded', 'rejected']) }}</td>
 </tr>

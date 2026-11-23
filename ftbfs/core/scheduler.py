@@ -248,10 +248,27 @@ class Scheduler:
                                    for s in self.pipeline},
                        builders=self.builders, identity=self.identity)
 
-    def explain(self, uid_for: dict[str, str]) -> list[tuple[str, str]]:
-        """Decision per stage for one item (and its package/cluster)."""
+    def outdated(self, uid_for: dict[str, str], stage: str
+                 ) -> list[tuple[str, str]]:
+        """Why the latest result of `stage` for this item is no longer
+        current, as (stage, reason); empty when it is. It is current
+        while a run would keep it and the results it was made from:
+        `stage` and the stages it runs after are cached for their
+        inputs now. New upstream results change those inputs, reopen
+        a gate bound to the old ones or block it; a retry or a loop
+        makes the stage run again."""
+        names = [*self.pipeline[stage].after, stage]
+        return [(n, reason) for n, reason in self.explain(uid_for, names)
+                if plan_outcome(reason) != "done"]
+
+    def explain(self, uid_for: dict[str, str],
+                names: list[str] | None = None) -> list[tuple[str, str]]:
+        """Decision per stage (or per stage in `names`) for one item
+        (and its package/cluster)."""
         out = []
         for spec in self.pipeline:
+            if names is not None and spec.name not in names:
+                continue
             uid = uid_for.get(spec.stage.unit)
             if uid is None:
                 out.append((spec.name, f"no {spec.stage.unit} unit"))
