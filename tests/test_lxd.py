@@ -388,28 +388,45 @@ class ImageHost(Lxd):
 
 
 class Hosts:
-    """`lxc image copy --mode=push` between ImageHosts."""
+    """LXD hosts as this machine's `lxc` sees them. A server-to-server
+    `lxc image copy` fails as it does on a server that can use image
+    registries; export writes a split image (metadata, root) and
+    import reads it back under the same fingerprint."""
 
     def __init__(self, *hosts):
         self.by_remote = {h.remote: h for h in hosts}
+        self.tmp_dirs: list[Path] = []
         for h in hosts:
             h.run = self._run(h, h.run)
 
     def _run(self, host, run):
         def wrapped(*args, timeout=600):
-            if args[:2] != ("image", "copy"):
-                return run(*args, timeout=timeout)
-            if "copy" in host.fail:
-                raise LxdError("lxc image copy: failed")
-            src = host._mine(args[3])
-            fp = host.aliases.get(src, src)
-            dst = self.by_remote[args[4].rstrip(":")]
-            assert fp not in dst.images
-            dst.images.add(fp)
-            if "--alias" in args:
-                alias = args[args.index("--alias") + 1]
-                assert alias not in dst.aliases
-                dst.aliases[alias] = fp
+            match args:
+                case ("image", "copy", *_):
+                    raise LxdError("lxc image copy: Error: Failed"
+                                   " remote image download: Only pull"
+                                   " mode is supported for image"
+                                   " registries")
+                case ("image", "export", ref, target):
+                    if "export" in host.fail:
+                        raise LxdError("lxc image export: failed")
+                    fp = host._mine(ref)
+                    assert fp in host.images
+                    target = Path(target)
+                    self.tmp_dirs.append(target.parent)
+                    # As lxc 6.10 names them, metadata first.
+                    Path(f"{target}.root").write_text(f"root {fp}")
+                    target.write_text(f"meta {fp}")
+                case ("image", "import", meta, root, ref):
+                    if "import" in host.fail:
+                        raise LxdError("lxc image import: failed")
+                    assert ref == f"{host.remote}:"
+                    fp = Path(meta).read_text().removeprefix("meta ")
+                    assert Path(root).read_text() == f"root {fp}"
+                    assert fp not in host.images
+                    host.images.add(fp)
+                case _:
+                    return run(*args, timeout=timeout)
             return ""
         return wrapped
 
@@ -455,13 +472,59 @@ def test_copy_image_moves_the_alias_after_the_copy():
     assert dst.images == {"new"}
 
 
-def test_failed_copy_keeps_the_old_image():
-    src = ImageHost("laptop", {"ftbfs-builder": "new"}, fail=("copy",))
+@pytest.mark.parametrize("step", ["export", "import"])
+def test_failed_copy_keeps_the_old_image(step, tmp_path):
+    src = ImageHost("laptop", {"ftbfs-builder": "new"})
     dst = ImageHost("marsangle", {"ftbfs-builder": "old"})
+    (src if step == "export" else dst).fail = (step,)
     Hosts(src, dst)
     with pytest.raises(LxdError):
+        copy_image(src, dst, tmp_dir=tmp_path)
+    assert dst.aliases == {"ftbfs-builder": "old"}
+    # The temporary copy is gone, even on failure.
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_copy_image_goes_through_a_temporary_directory(tmp_path):
+    src = ImageHost("laptop", {"ftbfs-builder": "new"})
+    dst = ImageHost("marsangle", {"ftbfs-builder": "old"})
+    hosts = Hosts(src, dst)
+    copy_image(src, dst, tmp_dir=tmp_path / "cache")
+    assert [d.parent for d in hosts.tmp_dirs] == [tmp_path / "cache"]
+    assert list((tmp_path / "cache").iterdir()) == []
+
+
+def test_import_that_gives_another_image_moves_no_alias():
+    src = ImageHost("laptop", {"ftbfs-builder": "new"})
+    dst = ImageHost("marsangle", {"ftbfs-builder": "old"})
+    Hosts(src, dst)
+    run = dst.run
+
+    def other(*args, timeout=600):
+        if args[:2] == ("image", "import"):
+            dst.images.add("other")
+            return ""
+        return run(*args, timeout=timeout)
+    dst.run = other
+    with pytest.raises(LxdError, match="not there after its import"):
         copy_image(src, dst)
     assert dst.aliases == {"ftbfs-builder": "old"}
+
+
+def test_copy_image_needs_room_for_the_image(monkeypatch, tmp_path):
+    src = ImageHost("laptop", {"ftbfs-builder": "new"})
+    dst = ImageHost("marsangle", {"ftbfs-builder": "old"})
+    Hosts(src, dst)
+    query = src.query
+    monkeypatch.setattr(src, "query", lambda path: dict(
+        query(path) or {}, size=550 << 20))
+    usage = shutil.disk_usage(tmp_path)
+    monkeypatch.setattr(shutil, "disk_usage",
+                        lambda p: usage._replace(free=100 << 20))
+    with pytest.raises(LxdError, match="needs 550 MB .* 100 MB free"):
+        copy_image(src, dst, tmp_dir=tmp_path)
+    assert dst.aliases == {"ftbfs-builder": "old"}
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_copy_image_when_the_image_is_already_there():
@@ -526,20 +589,27 @@ def test_errors_name_the_subcommand(monkeypatch):
         Lxd("host", "ftbfs").restart("w")
 
 
-def test_copy_image_into_a_project(monkeypatch):
-    src = ImageHost("laptop", {"ftbfs-builder": "new"})
-    dst = ImageHost("marsangle")
-    dst.project = "ftbfs"
-    copies = []
-    run = src.run
-
-    def record(*args, timeout=600):
-        if args[:2] == ("image", "copy"):
-            copies.append(args)
-            dst.images.add("new")
-            return ""
-        return run(*args, timeout=timeout)
-    src.run = record
-    copy_image(src, dst)
-    assert copies == [("image", "copy", "--mode=push", "--target-project",
-                       "ftbfs", "laptop:ftbfs-builder", "marsangle:")]
+def test_copy_image_between_projects(monkeypatch, tmp_path):
+    """Each side's project goes on its own command."""
+    class Exporting(Recorder):
+        def __call__(self, argv, **kw):
+            if argv[3:5] == ["image", "export"]:
+                Path(argv[-1]).write_text("")
+                Path(argv[-1] + ".root").write_text("")
+            return super().__call__(argv, **kw)
+    rec = Exporting()
+    monkeypatch.setattr(subprocess, "run", rec)
+    src, dst = Lxd("laptop", "ftbfs"), Lxd("marsangle", "ftbfs-b")
+    monkeypatch.setattr(src, "image", lambda alias: "fp1")
+    monkeypatch.setattr(dst, "image", lambda alias: None)
+    present = iter([False, True])
+    monkeypatch.setattr(dst, "has_image", lambda fp: next(present))
+    monkeypatch.setattr(dst, "set_alias", lambda alias, fp: None)
+    copy_image(src, dst, tmp_dir=tmp_path)
+    export, imp = (a for a in rec.argvs if a[3:4] == ["image"])
+    tmp = Path(export[-1]).parent
+    assert tmp.parent == tmp_path
+    assert export == ["lxc", "--project", "ftbfs", "image", "export",
+                      "laptop:fp1", f"{tmp}/image"]
+    assert imp == ["lxc", "--project", "ftbfs-b", "image", "import",
+                   f"{tmp}/image", f"{tmp}/image.root", "marsangle:"]

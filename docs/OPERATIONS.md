@@ -549,6 +549,12 @@ parallel = 4
   first LXD builder's host (sbuild, mmdebstrap, a builder user, the
   chroot tarball) and copies it to the others. Workers switch to a new
   image at their next build.
+- The copy goes through the machine running ftbfs (`lxc image export`
+  from the first host, `lxc image import` into the others, same
+  fingerprint), in a temporary directory under `cache/`: keep room
+  there for one image (about 550 MB). LXD refuses a direct
+  server-to-server `lxc image copy` into a host that can use image
+  registries. `ftbfs builders sync` redoes the copy alone.
 - Rebuild the image when the series changes, or when "reproduced"
   rates suddenly drop or builds fail in chroot setup (a stale or broken
   chroot). With an image for another series, sbuild finds no tarball:

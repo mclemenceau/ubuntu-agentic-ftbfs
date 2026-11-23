@@ -31,7 +31,9 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -490,8 +492,16 @@ def build_image(lxd: Lxd, series: str, arches: list[str],
     return fp
 
 
-def copy_image(src: Lxd, dst: Lxd, alias: str = IMAGE_ALIAS) -> str:
-    """Make `dst`'s alias point at the same image as `src`'s."""
+def copy_image(src: Lxd, dst: Lxd, alias: str = IMAGE_ALIAS,
+               tmp_dir: Path | None = None) -> str:
+    """Make `dst`'s alias point at the same image as `src`'s.
+
+    The image goes through this machine (export, then import), in a
+    temporary directory under `tmp_dir`: LXD refuses a server-to-server
+    `lxc image copy` into a server that can use image registries, and
+    the lxd 5.21 client resolves its source outside `--project`. The
+    import keeps the fingerprint, which is checked before the alias
+    moves."""
     fp = src.image(alias)
     if fp is None:
         raise LxdError(f"{src.remote}: no {alias} image")
@@ -499,16 +509,38 @@ def copy_image(src: Lxd, dst: Lxd, alias: str = IMAGE_ALIAS) -> str:
     if old == fp:
         return fp
     if not dst.has_image(fp):
-        # Push: the source host sends it, so it need not listen on the
-        # network (this machine's LXD usually does not).
-        target = ["--target-project", dst.project] if dst.project else []
-        src.run("image", "copy", "--mode=push", *target, src.ref(alias),
-                f"{dst.remote}:", timeout=3600)
+        _transfer_image(src, dst, fp, tmp_dir)
+        if not dst.has_image(fp):
+            raise LxdError(f"{dst.remote}: image {fp[:12]} not there"
+                           " after its import")
     # The alias moves only once the image is there.
     dst.set_alias(alias, fp)
     if old is not None:
         _delete_image(dst, old)
     return fp
+
+
+def _transfer_image(src: Lxd, dst: Lxd, fp: str,
+                    tmp_dir: Path | None) -> None:
+    if tmp_dir is not None:
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="ftbfs-image-",
+                                     dir=tmp_dir) as tmp:
+        size = ((src.query(f"/1.0/images/{fp}") or {}).get("size")
+                or 0)
+        free = shutil.disk_usage(tmp).free
+        if size > free:
+            raise LxdError(f"image {fp[:12]} needs {size >> 20} MB in"
+                           f" {tmp}, {free >> 20} MB free")
+        src.run("image", "export", src.ref(fp), f"{tmp}/image",
+                timeout=3600)
+        # A split image is two files, its metadata (`image`) and its
+        # root file system (`image.root`); import takes them in that
+        # order.
+        files = sorted(Path(tmp).iterdir(), key=lambda f: (
+            f.name.endswith((".root", ".squashfs")), f.name))
+        dst.run("image", "import", *map(str, files), f"{dst.remote}:",
+                timeout=3600)
 
 
 def _delete_image(lxd: Lxd, fp: str) -> None:

@@ -109,7 +109,8 @@ class App:
         for b in {b.where: b for b in lxds}.values():
             if b.where != first.where:
                 log(f"{b.where} image {fp[:12]}")
-                copy_image(first.lxd, b.lxd, first.image)
+                copy_image(first.lxd, b.lxd, first.image,
+                           self.config.cache_dir)
         return fp
 
     def _lxd_builders_or_fail(self) -> list:
