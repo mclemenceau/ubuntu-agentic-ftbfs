@@ -177,7 +177,9 @@ def test_dev_verify_loop_until_it_builds(env, monkeypatch):
     status, dev = latest(db, "dev")
     assert dev["version"] == "1.0-1ubuntu1"
     patch = Path(dev["patch_file"]).read_text()
-    assert patch.startswith("Description: Make name const.")
+    assert patch.startswith("Description: Fix FTBFS with GCC 15 (const"
+                            " string)\n Make name const. Needed with"
+                            " GCC 15.\n")
     assert "Author: Test Dev <dev@example.org>" in patch
     # the retry kept the first fix and added the second: one patch
     assert "+const char *name" in patch
@@ -323,3 +325,134 @@ def test_packaging_links_out_of_the_tree_are_refused(tmp_path, path):
     (tree / path).symlink_to(tmp_path)
     with pytest.raises(srcpkg.SourceError, match="outside the source"):
         srcpkg.hide_links(tree)
+
+
+def changelog_entry(debdiff: str) -> list[str]:
+    """The new changelog entry's lines, from the debdiff."""
+    out = []
+    for line in debdiff.split("+++ ", 2)[1].splitlines()[2:]:
+        if not line.startswith("+"):
+            break
+        out.append(line[1:])
+    return out
+
+
+KAPTAN = {
+    "summary": "Fix FTBFS with Python 3.15 by replacing removed"
+               " SourceFileLoader.load_module().",
+    "patch_name": "python315-remove-load-module",
+    "patch_description": (
+        "Python 3.15 removed the long-deprecated"
+        " SourceFileLoader.load_module() method, causing kaptan's Python"
+        " config file handler to fail with AttributeError. Replace it"
+        " with the modern importlib recipe (spec_from_loader,"
+        " module_from_spec, exec_module) so config files can still be"
+        " loaded dynamically."),
+    "forwarded": "no", "bug_debian": "https://bugs.debian.org/1149335",
+    "files_changed": ["src/main.c"], "confidence": 0.9, "notes": ""}
+
+
+def test_one_changelog_item_naming_the_patch_and_debian_bug(env,
+                                                           monkeypatch):
+    """python-kaptan: the entry had the summary and the description's
+    first sentence as two items saying the same thing, and no Debian
+    bug. One item: the patch, the summary, the bug as plain text."""
+    db, item, tmp = env
+    monkeypatch.setenv("FAIL_TIMES", "0")
+
+    def kaptan(req):
+        agent(req)
+        return KAPTAN
+
+    run(db, item, tmp, responder=kaptan)
+    dev = latest(db, "dev")[1]
+    entry = changelog_entry(Path(dev["debdiff"]).read_text())
+    assert entry[2:6] == [
+        "  * d/p/python315-remove-load-module.patch: Fix FTBFS with Python"
+        " 3.15 by",
+        "    replacing removed SourceFileLoader.load_module() (Debian"
+        " #1149335).",
+        "",
+        " -- Test Dev <dev@example.org>  " + entry[5].split(">  ")[1],
+    ]
+    assert "Closes" not in "\n".join(entry)
+
+
+def test_dep3_description_is_a_synopsis_and_a_wrapped_body(env,
+                                                           monkeypatch):
+    """python-kaptan: Description was one 307-column line. The summary
+    is the synopsis; the description follows on continuation lines
+    within 80 columns."""
+    db, item, tmp = env
+    monkeypatch.setenv("FAIL_TIMES", "0")
+
+    def kaptan(req):
+        agent(req)
+        return {**KAPTAN, "summary": "Stop using load_module(), removed"
+                                     " in Python 3.15."}
+
+    run(db, item, tmp, responder=kaptan)
+    patch = Path(latest(db, "dev")[1]["patch_file"]).read_text()
+    header = patch.split("\n---\n")[0].splitlines()
+    assert header[0] == ("Description: Stop using load_module(), removed"
+                         " in Python 3.15")
+    body = header[1:header.index("Author: Test Dev <dev@example.org>")]
+    assert body[0] == " Python 3.15 removed the long-deprecated" \
+                      " SourceFileLoader.load_module() method,"
+    assert all(ln.startswith(" ") and len(ln) <= 80 for ln in body)
+    assert " ".join(ln.strip() for ln in body) == \
+        KAPTAN["patch_description"]
+
+
+def test_packaging_only_fix_names_the_files_it_changes(env, monkeypatch):
+    """osmnx: a debian/rules-only fix got "debian/rules: see patch
+    description." when there is no patch."""
+    db, item, tmp = env
+    monkeypatch.setenv("FAIL_TIMES", "0")
+
+    def rules(req):
+        with (req.cwd / "debian" / "rules").open("a") as f:
+            f.write("\noverride_dh_python3:\n\tdh_python3\n")
+        return {**KAPTAN, "summary": "Do not ship upstream tests/ as a"
+                                     " top-level module",
+                "bug_debian": "1151535",
+                "files_changed": ["debian/rules"]}
+
+    run(db, item, tmp, responder=rules)
+    dev = latest(db, "dev")[1]
+    assert dev["patch_file"] is None
+    entry = changelog_entry(Path(dev["debdiff"]).read_text())
+    assert entry[2:4] == [
+        "  * d/rules: Do not ship upstream tests/ as a top-level module"
+        " (Debian",
+        "    #1151535).",
+    ]
+
+
+def test_changelog_wraps_at_80_columns_without_breaking_options(
+        env, monkeypatch):
+    """tiledarray: dch wrapped "-lze_loader" as "-" and "lze_loader"."""
+    db, item, tmp = env
+    monkeypatch.setenv("FAIL_TIMES", "0")
+
+    def flags(req):
+        agent(req)
+        return {**KAPTAN, "bug_debian": None,
+                "patch_name": "fix-ftbfs-mpi-libs-cstdint-tests",
+                "summary": "Remove -lucc, -lze_loader, -lucp and -lucs"
+                           " from the pkg-config MPI link flags.",
+                "patch_description": "Remove -lucc, -lze_loader, -lucp"
+                " and -lucs from the pkg-config MPI link flags. Those"
+                " libraries are not in the archive."}
+
+    run(db, item, tmp, responder=flags)
+    dev = latest(db, "dev")[1]
+    entry = changelog_entry(Path(dev["debdiff"]).read_text())
+    items = entry[2:entry.index("", 2)]
+    assert all(len(ln) <= 80 for ln in items)
+    assert not any(ln.endswith("-") for ln in items)
+    log = subprocess.run(
+        ["dpkg-parsechangelog", "-l", str(Path(dev["new_dsc"]).parent /
+                                          "tree" / "debian" / "changelog"),
+         "-S", "Changes"], capture_output=True, text=True, check=True)
+    assert "tinypkg (1.0-1ubuntu1) stonking; urgency=medium" in log.stdout

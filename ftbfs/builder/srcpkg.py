@@ -5,7 +5,7 @@
 
 The agent only edits files in an unpacked tree. Everything
 Debian-specific is done here, so packaging is always well formed and no
-tokens are spent on quilt/dch mechanics:
+tokens are spent on quilt/changelog mechanics:
 
   - unpack the source (patches applied) and snapshot it in git, with
     the repository next to the tree, not in it: the tree is untrusted
@@ -25,7 +25,9 @@ import os
 import re
 import shutil
 import subprocess
+import textwrap
 from dataclasses import dataclass
+from email.utils import formatdate
 from pathlib import Path
 
 GIT_ENV = {"GIT_AUTHOR_NAME": "ftbfs", "GIT_AUTHOR_EMAIL": "ftbfs@localhost",
@@ -36,6 +38,7 @@ GIT_ENV = {"GIT_AUTHOR_NAME": "ftbfs", "GIT_AUTHOR_EMAIL": "ftbfs@localhost",
 # nothing in it may run a command.
 GIT_ISOLATION = {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"}
 GIT_SAFE = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"]
+WIDTH = 80  # changelog and DEP-3 header lines
 
 
 class SourceError(RuntimeError):
@@ -194,7 +197,8 @@ def apply_edits(tree: Path, diff: str) -> None:
 @dataclass
 class PatchMeta:
     name: str  # slug, without .patch
-    description: str
+    description: str  # the long description, or all of it (see below)
+    synopsis: str | None = None  # else the description's first line
     forwarded: str = "no"
     bug_debian: str | None = None
     origin: str | None = None
@@ -202,7 +206,7 @@ class PatchMeta:
 
 
 def dep3_header(meta: PatchMeta) -> str:
-    lines = [f"Description: {_one_line(meta.description)}"]
+    lines = [_dep3_description(meta.synopsis, meta.description)]
     if meta.author:
         lines.append(f"Author: {meta.author}")
     if meta.origin:
@@ -214,10 +218,26 @@ def dep3_header(meta: PatchMeta) -> str:
     return "\n".join(lines) + "\n---\n"
 
 
-def _one_line(text: str) -> str:
-    # DEP-3 continuation lines must start with a space.
-    first, *rest = text.strip().splitlines() or [""]
-    return first + "".join(f"\n {r.strip() or '.'}" for r in rest)
+def _dep3_description(synopsis: str | None, text: str) -> str:
+    """A one-line synopsis, then the long description wrapped on
+    continuation lines (a space first, "." for a blank line). Lines the
+    text already has are kept."""
+    body = text.strip().splitlines()
+    if synopsis is None:
+        synopsis, *body = body or [""]
+    out = [f"Description: {synopsis.strip().removesuffix('.')}"]
+    for line in body:
+        out += wrap(line, " ", " ") if line.strip() else [" ."]
+    return "\n".join(out)
+
+
+def wrap(text: str, first: str, rest: str) -> list[str]:
+    """Fill to WIDTH columns, breaking only at spaces: a word longer
+    than a line stays whole, and so do options such as -Wno-error
+    (dch breaks after a hyphen)."""
+    return textwrap.wrap(text.strip(), WIDTH, initial_indent=first,
+                         subsequent_indent=rest, break_long_words=False,
+                         break_on_hyphens=False) or [first.rstrip()]
 
 
 def _today() -> str:
@@ -273,14 +293,19 @@ def _in_head(tree: Path, path: str) -> bool:
 
 
 def add_changelog(tree: Path, version: str, series: str,
-                  lines: list[str], name: str, email: str,
+                  items: list[str], name: str, email: str,
                   first_delta: bool) -> None:
-    env = {"DEBFULLNAME": name, "DEBEMAIL": email}
-    first, *rest = lines
-    _run(["dch", "-v", version, "-D", series, "--force-distribution",
-          "--force-bad-version", first], cwd=tree, env=env)
-    for line in rest:
-        _run(["dch", "-a", line], cwd=tree, env=env)
+    """Add an entry on top of debian/changelog, one `*` item each,
+    wrapped like wrap(). Written here rather than with dch, which breaks
+    words after a hyphen."""
+    log = tree / "debian" / "changelog"
+    source = _run(["dpkg-parsechangelog", "-l", str(log), "-S", "Source"],
+                  cwd=tree).stdout.strip()
+    body = [ln for item in items for ln in wrap(item, "  * ", "    ")]
+    entry = "\n".join([
+        f"{source} ({version}) {series}; urgency=medium", "", *body, "",
+        f" -- {name} <{email}>  {formatdate(localtime=True)}", "", ""])
+    log.write_text(entry + log.read_text())
     if first_delta:
         _run(["update-maintainer"], cwd=tree)
 

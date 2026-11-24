@@ -9,6 +9,7 @@ package and debdiff. Human-gated; feedback from `verify` loops back here.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -190,21 +191,18 @@ class DevStage(Stage):
         edits.write_text(srcpkg.edits(tree))
         patch = srcpkg.record_upstream_changes(tree, srcpkg.PatchMeta(
             name=meta["patch_name"],
+            synopsis=meta["summary"],
             description=meta["patch_description"],
             forwarded=meta["forwarded"],
             bug_debian=meta.get("bug_debian"),
             author=f"{name} <{email}>",
         ))
         version = srcpkg.next_ubuntu_version(item["version"])
-        lines = [meta["summary"]]
-        if patch:
-            lines.append(f"d/p/{patch}: {_first_sentence(meta)}")
         packaging = [p for p in changed if p.startswith("debian/")]
-        if packaging:
-            lines.append(f"{', '.join(packaging)}: see patch description.")
-        srcpkg.add_changelog(tree, version, _series(ctx), lines, name,
-                             email, first_delta="ubuntu" not in
-                             item["version"])
+        srcpkg.add_changelog(tree, version, _series(ctx),
+                             [changelog_item(meta, patch, packaging)],
+                             name, email,
+                             first_delta="ubuntu" not in item["version"])
         new_dsc = srcpkg.build_source(tree, dsc.parent)
         debdiff = adir / "fix.debdiff"
         srcpkg.debdiff(dsc, new_dsc, debdiff)
@@ -220,6 +218,21 @@ class DevStage(Stage):
         }, [str(debdiff), str(new_dsc), str(edits)])
 
 
-def _first_sentence(meta: dict) -> str:
-    text = meta["patch_description"].strip().split(". ")[0]
-    return text.rstrip(".") + "."
+def changelog_item(meta: dict, patch: str | None,
+                   packaging: list[str]) -> str:
+    """The changelog entry's one item: the files the fix changes (the
+    new patch, then debian/ files), the summary, and the Debian bug it
+    fixes. The bug is plain text: `Closes:` is for Debian uploads."""
+    files = ([f"d/p/{patch}"] if patch else []) + [
+        "d/" + p.removeprefix("debian/") for p in packaging]
+    text = meta["summary"].strip().removesuffix(".")
+    bug = debian_bug(meta.get("bug_debian"))
+    if bug:
+        text += f" (Debian #{bug})"
+    return f"{', '.join(files)}: {text}." if files else f"{text}."
+
+
+def debian_bug(ref: str | None) -> str | None:
+    """1149335 from https://bugs.debian.org/1149335, #1149335, ..."""
+    m = re.search(r"(\d+)\W*$", ref or "")
+    return m.group(1) if m else None
